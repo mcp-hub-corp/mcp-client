@@ -34,7 +34,7 @@ All 6 phases completed successfully with production-ready code, comprehensive do
 | cli | 4.7% | Limited (expected) |
 | **Average** | **~70%** | **Excellent** |
 
-### Test Types (8 types implemented)
+### Test Types (9 types implemented)
 
 1. **Unit Tests**: 212 tests
 2. **Table-Driven**: 23 tests
@@ -44,6 +44,7 @@ All 6 phases completed successfully with production-ready code, comprehensive do
 6. **Benchmarks**: 15 performance tests
 7. **Fuzz Tests**: 4 security tests
 8. **Examples**: 6 executable documentation tests
+9. **E2E Tests**: 6 tests against real registry
 
 ## Features Implemented
 
