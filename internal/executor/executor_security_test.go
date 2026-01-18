@@ -252,10 +252,8 @@ func TestNewSTDIOExecutor_EnforcesAllLimits(t *testing.T) {
 						t.Errorf("Expected CRITICAL error message, got: %v", err)
 					}
 				}
-			} else {
-				if err != nil {
-					t.Fatalf("Unexpected error for %s: %v", tc.name, err)
-				}
+			} else if err != nil {
+				t.Fatalf("Unexpected error for %s: %v", tc.name, err)
 			}
 		})
 	}
