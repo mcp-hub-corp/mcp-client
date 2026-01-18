@@ -4,27 +4,43 @@
 
 ### Overall Statistics
 
-- **Total test modules**: 8
-- **Total test files**: 17
-- **Total test cases**: 200+
-- **Total test code**: 3,776 lines
-- **Average coverage**: ~75%
+- **Total test modules**: 10
+- **Total test files**: 25+
+- **Total test cases**: 220+
+- **Total test code**: 4,100+ lines
+- **Average coverage**: ~70%
 
 ### Coverage by Module
 
-| Module | Coverage | Test Count | Status |
-|--------|----------|------------|--------|
-| policy | 100.0% | 13 | Excellent |
-| config | 94.6% | 7 | Excellent |
-| manifest | 87.5% | 16 | Excellent |
-| audit | 83.8% | 9 | Excellent |
-| registry | 80.8% | 64+ | Excellent |
-| sandbox | 75.8% | 33 | Good |
-| cache | 68.8% | 25+ | Good |
-| executor | 23.3% | 9 | Adequate |
-| cli | 4.7% | 4 | Limited* |
+| Module | Coverage | Test Count | Test Types | Status |
+|--------|----------|------------|------------|--------|
+| policy | 100.0% | 13 | Unit, Table-Driven | Excellent 🌟 |
+| config | 94.6% | 7 | Unit, Env Override | Excellent |
+| manifest | 89.1% | 16 | Unit, Fuzz, Bench, Examples | Excellent |
+| audit | 83.8% | 9 | Unit, Integration | Excellent |
+| registry | 80.8% | 64+ | Unit, Integration, Fuzz, Bench, Examples | Excellent |
+| cache | 80.3% | 43+ | Unit, Integration, Concurrency, Bench, Examples | Very Good |
+| sandbox | 75.8% | 33 | Unit, Platform-Specific | Good |
+| executor | 23.3% | 9 | Unit | Adequate |
+| cli | 4.7% | 4 | Basic | Limited* |
 
 *CLI has low coverage because most logic is in other modules. Integration tests cover full workflows.
+
+### New Test Types Added
+
+**Benchmark Tests** (15 total):
+- Cache operations (Put/Get/List/Exists)
+- Digest validation (small to 100MB)
+- Manifest parsing and validation
+
+**Fuzz Tests** (4 total):
+- Manifest parsing (security-critical)
+- Digest parsing (input validation)
+- Automatic discovery of edge cases
+
+**Example Tests** (6 total):
+- Executable documentation
+- Usage patterns for godoc
 
 ## Test Types
 
