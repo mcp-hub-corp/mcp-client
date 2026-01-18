@@ -108,10 +108,6 @@ var pullCmd = &cobra.Command{
 	Long: `Pre-download an MCP package without executing it.
 Example: mcp pull acme/hello-world@1.2.3`,
 	Args: cobra.ExactArgs(1),
-	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Fprintln(os.Stderr, "not implemented yet")
-		os.Exit(1)
-	},
 }
 
 // runCmd executes an MCP server
@@ -121,10 +117,6 @@ var runCmd = &cobra.Command{
 	Long: `Execute an MCP server from a package reference.
 Example: mcp run acme/hello-world@1.2.3`,
 	Args: cobra.ExactArgs(1),
-	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Fprintln(os.Stderr, "not implemented yet")
-		os.Exit(1)
-	},
 }
 
 // infoCmd displays information about a package
@@ -134,10 +126,6 @@ var infoCmd = &cobra.Command{
 	Long: `Display detailed information about an MCP package from the registry.
 Example: mcp info acme/hello-world@1.2.3`,
 	Args: cobra.ExactArgs(1),
-	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Fprintln(os.Stderr, "not implemented yet")
-		os.Exit(1)
-	},
 }
 
 // cacheCmd manages the local cache
@@ -151,21 +139,12 @@ var cacheLsCmd = &cobra.Command{
 	Use:   "ls",
 	Short: "List cached artifacts",
 	Long:  `List all artifacts stored in the local cache.`,
-	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Fprintln(os.Stderr, "not implemented yet")
-		os.Exit(1)
-	},
 }
 
 var cacheRmCmd = &cobra.Command{
-	Use:   "rm <digest>",
+	Use:   "rm [<digest>...]",
 	Short: "Remove a cached artifact",
-	Long:  `Remove an artifact from the local cache by digest.`,
-	Args:  cobra.MinimumNArgs(1),
-	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Fprintln(os.Stderr, "not implemented yet")
-		os.Exit(1)
-	},
+	Long:  `Remove an artifact from the local cache by digest, or use --all to clear the entire cache.`,
 }
 
 func init() {
