@@ -533,3 +533,106 @@ We aim to respond within 48 hours and release patches promptly.
 
 **Last Updated**: 2026-01-18
 **Document Version**: 1.0
+
+## Mandatory Default Limits
+
+**CRITICAL SECURITY FEATURE**: mcp-client ALWAYS applies resource limits, even if not configured.
+
+### Default Limits (v1.0+)
+
+These limits are MANDATORY and applied to every execution:
+
+| Resource | Default Value | Emergency Minimum | Adjustable |
+|----------|---------------|-------------------|------------|
+| CPU | 1000 millicores (1 core) | 100 millicores | Yes (stricter only) |
+| Memory | 512M | 256M | Yes (stricter only) |
+| PIDs | 32 processes | 10 processes | Yes (stricter only) |
+| FDs | 256 descriptors | 64 descriptors | Yes (stricter only) |
+| Timeout | 5 minutes | 1 minute | Yes (stricter only) |
+
+**Guarantee**: No code path allows execution without these minimums.
+
+### Validation Layers
+
+1. **Config**: Defaults loaded from config.yaml or viper.SetDefault()
+2. **Policy**: ApplyLimits() validates and applies stricter manifest limits
+3. **Executor**: NewSTDIOExecutor() rejects nil or invalid limits with CRITICAL errors
+4. **Sandbox**: Platform-specific enforcement (rlimits/cgroups/Job Objects)
+
+## Platform Isolation Matrix
+
+### Linux
+
+| Layer | Status | Requirements | Description |
+|-------|--------|--------------|-------------|
+| rlimits | ✅ ENABLED | None | CPU, memory, PID, FD limits (MANDATORY) |
+| Mount NS | ✅ ENABLED | Modern kernel | Filesystem isolation (OPTIONAL) |
+| Network NS | ⚠️ DEGRADED | root/CAP_NET_ADMIN | Default-deny network (OPTIONAL) |
+| cgroups v2 | ⚠️ DEGRADED | Privileges | Enhanced kernel enforcement (OPTIONAL) |
+| Umask | ✅ ENABLED | None | Restrictive file permissions (0077) |
+
+**Security Level**: COMPREHENSIVE (with root) / GOOD (non-root)
+
+### macOS
+
+| Layer | Status | Requirements | Description |
+|-------|--------|--------------|-------------|
+| rlimits | ✅ ENABLED | None | CPU, memory, PID, FD limits (MANDATORY) |
+| Mount NS | ❌ UNSUPPORTED | N/A | macOS has no mount namespaces |
+| Network NS | ❌ UNSUPPORTED | N/A | macOS has no network namespaces |
+| cgroups | ❌ UNSUPPORTED | N/A | macOS has no cgroups |
+| Umask | ⚠️ INHERITED | None | Process inherits parent umask |
+
+**Security Level**: BASIC (rlimits only)
+
+**Limitations**:
+- No network isolation possible
+- No filesystem isolation possible
+- RLIMIT_AS is best-effort (may not prevent all allocations)
+- Recommend Linux VM for strict security requirements
+
+### Windows
+
+| Layer | Status | Requirements | Description |
+|-------|--------|--------------|-------------|
+| Job Objects | ✅ ENABLED | None | Memory, PID limits (MANDATORY) |
+| Process Limit | ✅ ENABLED | None | Active process count enforcement |
+| Network Isolation | ❌ UNSUPPORTED | WFP/drivers | No network isolation without kernel components |
+| Filesystem | ⚠️ DEGRADED | ACLs | Standard Windows ACL enforcement only |
+| Umask | ❌ UNSUPPORTED | N/A | Windows uses different permission model |
+
+**Security Level**: MODERATE (Job Objects)
+
+**Limitations**:
+- No network isolation without WFP
+- No namespace support (Windows concept different from Linux)
+- CPU time limits limited (affinity/priority, not hard wall-clock)
+- FD limits not available (Windows uses handles)
+
+## Default-Deny Security Posture
+
+### Network Access
+
+- **Linux (root)**: Default-deny via network namespace (only loopback)
+- **Linux (non-root)**: DEGRADED - network accessible
+- **macOS**: DEGRADED - network accessible (documented limitation)
+- **Windows**: DEGRADED - network accessible (documented limitation)
+
+Manifest can request network allowlist, enforced best-effort per platform.
+
+### Filesystem Access
+
+- **Linux**: Isolated mount namespace (process view of mounts)
+- **macOS**: DEGRADED - standard UNIX permissions
+- **Windows**: DEGRADED - standard ACLs
+
+Working directory isolated, HOME set to workdir.
+
+### Subprocess Control
+
+- **Linux**: seccomp can block fork/exec (future enhancement)
+- **macOS**: RLIMIT_NPROC limits total processes
+- **Windows**: Job Object limits active processes
+
+Manifest must declare subprocess: true to spawn children.
+
