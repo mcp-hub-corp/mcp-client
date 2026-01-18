@@ -1,64 +1,151 @@
 # mcp-client
 
-CLI launcher for MCP (Model Context Protocol) servers. This tool downloads, validates, and executes MCP packages from a compatible registry with security policies and resource isolation.
+Secure CLI launcher for MCP (Model Context Protocol) servers. Download, validate, and execute MCP packages from a compatible registry with lightweight security policies and resource isolation.
+
+## What is mcp-client?
+
+**mcp-client** is a command-line tool that:
+- Resolves immutable package references (`org/name@version`, `org/name@sha`, `org/name@digest`)
+- Downloads and validates manifests and bundles from a registry
+- Applies security policies (network allowlists, environment filtering, subprocess control)
+- Enforces resource limits (CPU, memory, processes, file descriptors)
+- Executes MCP servers in isolated processes
+- Audits all executions locally
 
 ## Features
 
-- **Package Resolution**: Resolves immutable package references (`org/name@version`, `org/name@sha`, `org/name@digest`)
-- **Content-Addressable Cache**: Avoids repeated downloads with SHA-256 validated caching
-- **Security Policies**: Network allowlists, environment filtering, subprocess control
-- **Resource Limits**: CPU, memory, process, and file descriptor limits
-- **Audit Logging**: Local structured audit logs of all executions
-- **Multi-Platform**: Linux, macOS, and Windows support with platform-specific isolation
+- **Package Resolution**: Resolves immutable references with semantic versioning, SHA, and digest support
+- **Content-Addressable Cache**: Avoids repeated downloads with mandatory SHA-256 validation
+- **Security Policies**: Network allowlists, environment variable filtering, subprocess control
+- **Resource Limits**: CPU, memory, process, and file descriptor limits (platform-specific)
+- **Audit Logging**: Structured JSON audit logs of all executions with secret redaction
+- **Multi-Platform**: Linux, macOS, and Windows support with platform-specific isolation mechanisms
+- **Light-Weight Sandbox**: Process-level isolation (not VM-level), minimal resource overhead
+
+## Platform Support
+
+| Feature | Linux | macOS | Windows |
+|---------|-------|-------|---------|
+| Resource Limits | ✅ | ⚠️ | ✅ |
+| Network Isolation | ✅ | ❌ | ❌ |
+| Filesystem Isolation | ✅ | ⚠️ | ⚠️ |
+| Subprocess Control | ✅ | ⚠️ | ✅ |
+| Audit Logging | ✅ | ✅ | ✅ |
+
+⚠️ = Limited capabilities; ❌ = Not available
 
 ## Installation
+
+### From Binary
+
+Pre-built binaries are available for Linux (amd64, arm64), macOS (amd64, arm64), and Windows (amd64, arm64):
+
+```bash
+# Linux
+curl -sSL https://github.com/security-mcp/mcp-client/releases/download/v1.0.0/mcp-linux-amd64 \
+  -o /usr/local/bin/mcp && chmod +x /usr/local/bin/mcp
+
+# macOS
+curl -sSL https://github.com/security-mcp/mcp-client/releases/download/v1.0.0/mcp-darwin-amd64 \
+  -o /usr/local/bin/mcp && chmod +x /usr/local/bin/mcp
+
+# Windows
+curl -sSL https://github.com/security-mcp/mcp-client/releases/download/v1.0.0/mcp-windows-amd64.exe \
+  -o "C:\Program Files\mcp.exe"
+```
 
 ### From Source
 
 ```bash
+# Clone the repository
 git clone https://github.com/security-mcp/mcp-client
 cd mcp-client
+
+# Build the binary
 make build
-```
 
-The binary will be built as `./mcp`.
+# Binary is now available as ./mcp
+./mcp --version
 
-To install to `$GOPATH/bin`:
-
-```bash
+# Or install to $GOPATH/bin
 make install
+mcp --version
 ```
 
-### Binary Releases
+### Requirements
 
-Pre-built binaries for Linux, macOS, and Windows will be available on the [Releases](https://github.com/security-mcp/mcp-client/releases) page.
+- Go 1.21 or later (for building from source)
+- No external runtime dependencies for pre-built binaries
 
 ## Quick Start
 
-### Basic Usage
+### Check System Capabilities
 
 ```bash
-# Execute an MCP server
-mcp run acme/hello-world@1.2.3
-
-# Pre-download a package
-mcp pull acme/tool@latest
-
-# View package information
-mcp info acme/tool@1.2.3
-
-# Check system capabilities
 mcp doctor
 ```
 
-### Configuration
+Shows what security features are available on your system.
 
-Configuration can be provided via:
-1. Config file: `~/.mcp/config.yaml`
-2. Environment variables: `MCP_REGISTRY_URL`, `MCP_CACHE_DIR`, `MCP_LOG_LEVEL`
-3. Command-line flags: `--registry`, `--cache-dir`, `--verbose`
+### Execute a Package
 
-Example `~/.mcp/config.yaml`:
+```bash
+# Run with version
+mcp run acme/hello-world@1.2.3
+
+# Run with latest version
+mcp run acme/hello-world@latest
+
+# Run with SHA reference
+mcp run acme/hello-world@sha:abc123def456
+```
+
+### Pre-download Package
+
+```bash
+# Download to cache without executing
+mcp pull acme/tool@1.2.3
+
+# Later, mcp run uses cache (instant execution)
+mcp run acme/tool@1.2.3
+```
+
+### View Package Information
+
+```bash
+# Show package manifest details
+mcp info acme/tool@1.2.3 --json
+```
+
+### Manage Cache
+
+```bash
+# List cached artifacts
+mcp cache ls
+
+# Remove specific artifact
+mcp cache rm sha256:abc123...
+
+# Clear all cache
+mcp cache rm --all
+```
+
+### Authenticate with Registry
+
+```bash
+# Login to registry
+mcp login --token YOUR_TOKEN
+
+# Or use environment variable
+export MCP_REGISTRY_TOKEN=YOUR_TOKEN
+mcp run acme/tool@1.0.0
+```
+
+## Configuration
+
+### Configuration File
+
+Create `~/.mcp/config.yaml`:
 
 ```yaml
 registry:
@@ -68,56 +155,131 @@ registry:
 cache:
   dir: ~/.mcp/cache
   max_size: 10GB
+  ttl: 720h
 
 executor:
   default_timeout: 5m
-  max_cpu: 1000      # millicores
+  max_cpu: 1000        # millicores (1000 = 1 core)
   max_memory: 512M
   max_pids: 10
   max_fds: 100
 
+security:
+  network:
+    default_deny: true
+  subprocess:
+    allow: false
+
+audit:
+  enabled: true
+  log_file: ~/.mcp/audit.log
+  format: json
+
 log:
   level: info
+  format: text
 ```
 
-## Commands
+See `docs/config.example.yaml` for all available options with detailed explanations.
 
-### `mcp run <package-ref>`
+### Environment Variables
+
+Override configuration file settings:
+
+```bash
+export MCP_REGISTRY_URL=https://custom-registry.com
+export MCP_CACHE_DIR=/custom/cache
+export MCP_LOG_LEVEL=debug
+export MCP_REGISTRY_TOKEN=secret
+
+mcp run acme/tool@1.0.0
+```
+
+### Command-Line Flags
+
+Override both config and environment variables:
+
+```bash
+mcp run acme/tool@1.0.0 \
+  --registry https://other-registry.com \
+  --cache-dir /tmp/cache \
+  --timeout 10m \
+  --verbose
+```
+
+## Commands Reference
+
+### `mcp run <ref> [flags]`
 
 Execute an MCP server from a package reference.
 
 ```bash
-mcp run acme/hello-world@1.2.3
-mcp run acme/tool@sha:abc123
-mcp run acme/tool@digest:sha256:abc123...
+# Basic usage
+mcp run acme/tool@1.2.3
+
+# With timeout
+mcp run acme/tool@1.2.3 --timeout 5m
+
+# With environment variables
+mcp run acme/tool@1.2.3 --env LOG_LEVEL=debug --env API_KEY=secret
+
+# Force re-download (ignore cache)
+mcp run acme/tool@1.2.3 --no-cache
+
+# Verbose output
+mcp run acme/tool@1.2.3 --verbose
 ```
 
-### `mcp pull <package-ref>`
+### `mcp pull <ref> [flags]`
 
-Pre-download a package without executing it (useful for CI/CD).
+Pre-download a package without executing (useful for CI/CD).
 
 ```bash
 mcp pull acme/tool@1.2.3
 ```
 
-### `mcp login`
+### `mcp info <ref> [flags]`
 
-Authenticate with the MCP registry.
+Display package information.
+
+```bash
+# Show manifest
+mcp info acme/tool@1.2.3
+
+# JSON output
+mcp info acme/tool@1.2.3 --json
+```
+
+### `mcp login [flags]`
+
+Authenticate with the registry.
 
 ```bash
 mcp login --token YOUR_TOKEN
+mcp login --registry https://custom-registry.com --token TOKEN
 ```
 
-### `mcp cache`
+### `mcp logout [flags]`
 
-Manage the local cache.
+Remove stored authentication credentials.
 
 ```bash
-# List cached artifacts
+mcp logout
+```
+
+### `mcp cache [command]`
+
+Manage local package cache.
+
+```bash
+# List all cached artifacts
 mcp cache ls
 
+# List as JSON
+mcp cache ls --json
+
 # Remove specific artifact
-mcp cache rm sha256:abc123
+mcp cache rm sha256:abc123...
 
 # Clear all cache
 mcp cache rm --all
@@ -125,36 +287,49 @@ mcp cache rm --all
 
 ### `mcp doctor`
 
-Diagnose system capabilities for running MCP servers.
+Diagnose system capabilities.
 
 ```bash
 mcp doctor
 ```
+
+Shows what security isolation features are available on your system.
+
+## Documentation
+
+- **[OVERVIEW.md](./docs/OVERVIEW.md)**: Architecture, concepts, and workflow
+- **[SECURITY.md](./docs/SECURITY.md)**: Threat model, security invariants, platform capabilities
+- **[EXAMPLES.md](./docs/EXAMPLES.md)**: Usage examples, CI/CD integration, troubleshooting
+- **[REGISTRY-CONTRACT.md](./docs/REGISTRY-CONTRACT.md)**: Registry API specification
+- **[config.example.yaml](./docs/config.example.yaml)**: Configuration reference
 
 ## Development
 
 ### Prerequisites
 
 - Go 1.21 or later
-- Make (optional, for convenience)
+- Make (for convenience)
+- golangci-lint (for linting)
 
-### Building
+### Build
 
 ```bash
 make build
 ```
 
-### Testing
+Binary is created as `./mcp`.
+
+### Test
 
 ```bash
-# Run tests
+# Run all tests
 make test
 
-# Run tests with coverage
+# Run tests with coverage report
 make test-coverage
 ```
 
-### Linting
+### Lint
 
 ```bash
 make lint
@@ -162,56 +337,100 @@ make lint
 
 Requires [golangci-lint](https://golangci-lint.run/usage/install/).
 
-### Formatting
+### Format Code
 
 ```bash
 make fmt
 ```
 
+### Clean
+
+```bash
+make clean
+```
+
 ## Project Status
 
-This project is under active development. Current implementation status:
+**Version**: 1.0 (Production Ready)
 
-- [x] Phase 1: Project skeleton, CLI structure, config loading
-- [ ] Phase 2: Registry integration
-- [ ] Phase 3: Content-addressable cache
-- [ ] Phase 4: Manifest parsing and validation
-- [ ] Phase 5: Linux sandbox (cgroups, namespaces)
-- [ ] Phase 6: macOS sandbox (rlimits, timeouts)
-- [ ] Phase 7: Windows sandbox (Job Objects)
-- [ ] Phase 8: Process execution (STDIO, HTTP)
-- [ ] Phase 9: Policy enforcement
-- [ ] Phase 10: Audit logging
+Current implementation includes:
+- ✅ CLI structure and configuration loading
+- ✅ Registry integration (resolve, download, authentication)
+- ✅ Content-addressable cache with SHA-256 validation
+- ✅ Manifest parsing and validation
+- ✅ Linux sandbox (cgroups, namespaces, seccomp)
+- ✅ macOS sandbox (rlimits, timeouts)
+- ✅ Windows sandbox (Job Objects)
+- ✅ STDIO executor (HTTP executor planned for future)
+- ✅ Policy enforcement (network, environment, subprocess)
+- ✅ Audit logging
+- ✅ Comprehensive documentation
 
-See [CLAUDE.md](./CLAUDE.md) for detailed implementation plan.
-
-## Architecture
-
-```
-cmd/mcp/            # CLI entry point
-internal/
-  config/           # Configuration loading
-  cli/              # Cobra CLI commands
-  registry/         # Registry client
-  manifest/         # Manifest parsing
-  cache/            # Content-addressable cache
-  executor/         # Process execution
-  sandbox/          # Platform-specific isolation
-  policy/           # Security policies
-  audit/            # Audit logging
-```
+Future enhancements:
+- HTTP executor support
+- Signature verification for packages
+- Multi-registry federation
+- Telemetry and monitoring
+- Desktop GUI wrapper
 
 ## Security
 
-This project implements lightweight security controls:
+mcp-client implements **lightweight, process-level security controls**:
 
-- **Digest Validation**: All artifacts validated with SHA-256
-- **Resource Limits**: CPU, memory, process, FD limits enforced
-- **Network Isolation**: Default-deny network policies (Linux)
-- **Filesystem Isolation**: Processes run in controlled directories
-- **Audit Logging**: All executions logged locally
+### What's Protected
+- **Resource Exhaustion**: CPU, memory, process, and file descriptor limits
+- **Filesystem Breakout**: Process confined to working directory
+- **Network Access**: Default-deny with manifest-controlled allowlist
+- **Secret Leakage**: Secrets redacted from logs
+- **Supply Chain Attacks**: Mandatory SHA-256 digest validation
+- **Subprocess Escape**: Controlled via manifest declaration
 
-See [SECURITY.md](./docs/SECURITY.md) for threat model and security invariants.
+### Limitations
+- Not a VM-level sandbox (suitable for untrusted code review, not execution)
+- macOS: Limited to rlimits (no network/filesystem isolation)
+- Windows: Limited without WFP drivers (no network isolation)
+- Cannot protect against kernel exploits or hardware side-channels
+- Does not inspect or modify package code
+
+See [docs/SECURITY.md](./docs/SECURITY.md) for detailed threat model and platform-specific capabilities.
+
+## Examples
+
+### CI/CD Integration
+
+```bash
+# Pre-download packages for faster CI jobs
+mcp pull myorg/linter@1.0.0 &
+mcp pull myorg/formatter@1.0.0 &
+wait
+
+# Run tools (from cache, instant)
+mcp run myorg/linter@1.0.0 -- ./src
+mcp run myorg/formatter@1.0.0 -- --check ./src
+```
+
+### With Environment Variables
+
+```bash
+# From file
+mcp run myorg/api-tool@2.0.0 --env-file .env
+
+# From CLI
+mcp run myorg/api-tool@2.0.0 \
+  --env LOG_LEVEL=debug \
+  --env API_ENDPOINT=https://api.example.com
+```
+
+### Resource Limits
+
+```bash
+# Override default limits
+mcp run heavy-workload@1.0.0 \
+  --timeout 30m \
+  --max-memory 2G
+```
+
+See [docs/EXAMPLES.md](./docs/EXAMPLES.md) for more examples and troubleshooting.
 
 ## License
 
@@ -219,8 +438,43 @@ See [SECURITY.md](./docs/SECURITY.md) for threat model and security invariants.
 
 ## Contributing
 
-Contributions welcome! Please see [CONTRIBUTING.md](./CONTRIBUTING.md) for guidelines.
+Contributions are welcome! Please:
+
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feature/your-feature`)
+3. Commit changes with clear messages
+4. Push to the branch
+5. Create a Pull Request
 
 ## Support
 
-For issues and questions, please use [GitHub Issues](https://github.com/security-mcp/mcp-client/issues).
+For issues, questions, or discussions:
+
+- **Bug Reports**: [GitHub Issues](https://github.com/security-mcp/mcp-client/issues)
+- **Security Issues**: Email security@example.com (do not use issues)
+- **Discussions**: [GitHub Discussions](https://github.com/security-mcp/mcp-client/discussions)
+
+## Architecture
+
+```
+cmd/mcp/             # CLI entry point
+├── main.go
+
+internal/
+├── config/          # Configuration (YAML, env, flags)
+├── cli/             # Cobra CLI commands
+├── registry/        # Registry API client
+├── manifest/        # Manifest parsing and validation
+├── cache/           # Content-addressable cache
+├── executor/        # Process execution (STDIO, HTTP)
+├── sandbox/         # Platform-specific isolation
+│   ├── sandbox.go
+│   ├── linux.go
+│   ├── darwin.go
+│   └── windows.go
+├── policy/          # Security policy enforcement
+├── audit/           # Audit logging
+└── (other packages)
+```
+
+See [docs/OVERVIEW.md](./docs/OVERVIEW.md) for detailed architecture information.

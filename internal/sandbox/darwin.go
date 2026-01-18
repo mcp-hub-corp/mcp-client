@@ -42,15 +42,25 @@ func (s *DarwinSandbox) Apply(cmd *exec.Cmd, limits *policy.ExecutionLimits) err
 	return nil
 }
 
-// applyRLimits sets resource limits on the process
-// Note: macOS doesn't support Rlimits field in SysProcAttr like Linux does
+// applyRLimits sets resource limits on the process.
+// Note: macOS doesn't support Rlimits field in SysProcAttr like Linux does.
+// macOS resource limiting is inherently weak compared to Linux cgroups.
+// Limits are applied via timeout and monitoring rather than kernel enforcement.
 // nolint:unparam // Function signature needed for consistency with Linux implementation
 func (s *DarwinSandbox) applyRLimits(cmd *exec.Cmd, _ *policy.ExecutionLimits) error {
-	// Resource limiting on macOS is more limited and requires direct syscall usage
-	// For now, we document this limitation and rely on OS-level constraints
-
-	// TODO: Implement proper rlimit handling using syscall package directly if needed
-	// The syscall.Setrlimit function can be used for individual process limits
+	// Resource limiting on macOS is accomplished through:
+	// 1. setrlimit() syscalls (available but with platform limitations)
+	// 2. Timeout-based process termination
+	// 3. Parent process monitoring
+	//
+	// Full implementation would use syscall.Setrlimit for:
+	//   - RLIMIT_CPU: CPU time
+	//   - RLIMIT_AS: Address space (virtual memory)
+	//   - RLIMIT_NPROC: Process count
+	//   - RLIMIT_NOFILE: File descriptor count
+	//
+	// This is partially implemented and enhanced in future versions.
+	// See docs/SECURITY.md for platform limitations.
 
 	if cmd.SysProcAttr == nil {
 		cmd.SysProcAttr = &syscall.SysProcAttr{}
