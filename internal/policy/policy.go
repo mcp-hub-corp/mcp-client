@@ -201,6 +201,12 @@ func isMoreRestrictiveMemory(newLimit, currentLimit string) bool {
 
 // parseMemoryString parses memory strings like "512M", "1G" into bytes
 func parseMemoryString(s string) int64 {
+	return ParseMemoryStringHelper(s)
+}
+
+// ParseMemoryStringHelper parses memory strings like "512M", "1G" into bytes
+// This is exported for use by other packages like sandbox
+func ParseMemoryStringHelper(s string) int64 {
 	s = strings.TrimSpace(s)
 	if s == "" {
 		return 0

@@ -10,6 +10,7 @@ import (
 
 	"github.com/security-mcp/mcp-client/internal/manifest"
 	"github.com/security-mcp/mcp-client/internal/policy"
+	"github.com/security-mcp/mcp-client/internal/sandbox"
 )
 
 // Executor defines the interface for executing MCP servers
@@ -92,6 +93,16 @@ func (e *STDIOExecutor) Execute(ctx context.Context, entrypoint *manifest.Entryp
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
+
+	// Apply sandbox restrictions
+	sb := sandbox.New()
+	if err := sb.Apply(cmd, e.limits); err != nil {
+		e.logger.Warn("failed to apply sandbox restrictions",
+			slog.String("error", err.Error()),
+			slog.String("sandbox", sb.Name()),
+		)
+		// Log but don't fail - sandbox is best-effort
+	}
 
 	// Start the process
 	if err := cmd.Start(); err != nil {
