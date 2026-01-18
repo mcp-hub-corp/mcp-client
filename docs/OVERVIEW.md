@@ -1,159 +1,566 @@
 # MCP-Client Overview
 
-## Qué es mcp-client
+mcp-client is a secure launcher/executor for MCP (Model Context Protocol) servers. It downloads, validates, and executes MCP packages from a compatible registry with lightweight security policies and resource isolation.
 
-**mcp-client** es un launcher/ejecutor de servidores MCP que descarga, valida y ejecuta paquetes MCP desde un registry compatible (por defecto, **mcp-registry**).
+## What is mcp-client?
 
-## Relación con mcp-registry
+**mcp-client** is a command-line tool that:
+- Resolves immutable package references (`org/name@version`, `org/name@sha`, `org/name@digest`)
+- Downloads and validates manifests and bundles from a registry
+- Applies security policies (network allowlists, environment filtering, subprocess control)
+- Enforces resource limits (CPU, memory, processes, file descriptors)
+- Executes MCP servers in isolated processes
+- Audits all executions locally
 
-mcp-client actúa como **cliente/consumidor** del registry mcp-registry. La arquitectura sigue un modelo cliente-servidor:
+## What mcp-client is NOT
 
-```
-┌─────────────────┐                    ┌─────────────────┐
-│                 │   HTTP/HTTPS       │                 │
-│   mcp-client    │ ◄─────────────────►│  mcp-registry   │
-│   (launcher)    │                    │   (servidor)    │
-│                 │                    │                 │
-└─────────────────┘                    └─────────────────┘
-        │                                      │
-        │ Descarga                             │ Provee
-        │ Valida                               │ Almacena
-        │ Ejecuta                              │ Distribuye
-        ▼                                      ▼
-  Servidor MCP                          Manifests/Bundles
-```
+- **Not a container runtime**: No Docker, Kubernetes, or VM-level isolation (uses OS-level mechanisms)
+- **Not a package manager**: Does not manage dependencies or version resolution (registry handles that)
+- **Not a code analyzer**: Does not inspect or modify package code
+- **Not compatible with npm/pip/docker**: Only understands MCP package format (manifest + bundle)
+- **Not a sandbox escape detector**: Assumes attacks at kernel/hardware level are out of scope
+- **Not a registry**: Only consumes packages, does not publish or store them
 
-### Responsabilidades de mcp-registry
-
-El registry es responsable de:
-
-- **Almacenar** manifests y bundles de paquetes MCP
-- **Proveer API REST** para resolver referencias (org/name@version → digests + URLs)
-- **Autenticar** clientes (JWT Bearer para modo enterprise)
-- **Servir artefactos** directamente o vía redirects a S3/GCS (presigned URLs)
-- **Garantizar integridad** mediante digests SHA-256 inmutables
-
-### Responsabilidades de mcp-client
-
-El launcher es responsable de:
-
-- **Resolver referencias** consultando `/v1/packages/:org/:name/resolve`
-- **Descargar** manifests y bundles desde las URLs provistas
-- **Validar integridad** comparando SHA-256 del contenido descargado con digest esperado
-- **Cachear localmente** en `~/.mcp/cache/` para evitar re-downloads
-- **Parsear manifests** y seleccionar entrypoint correcto por OS/arquitectura
-- **Aplicar sandbox** con límites de recursos (CPU, memoria, red, filesystem)
-- **Ejecutar proceso** en modo STDIO o HTTP según manifest
-- **Auditar** todas las ejecuciones localmente
-
-### Flujo de comunicación típico
+## Architecture Overview
 
 ```
-1. Usuario: mcp run acme/hello-world@1.2.3
-
-2. mcp-client → mcp-registry:
-   POST /v1/packages/acme/hello-world/resolve
-   Body: {"ref": "1.2.3"}
-   Headers: Authorization: Bearer <JWT>
-
-3. mcp-registry → mcp-client:
-   200 OK
-   Body: {
-     "manifest": {
-       "digest": "sha256:abc123...",
-       "url": "https://registry.example.com/manifests/sha256:abc123"
-     },
-     "bundle": {
-       "digest": "sha256:def456...",
-       "url": "https://cdn.example.com/bundles/sha256:def456"
-     }
-   }
-
-4. mcp-client descarga manifest desde URL, calcula SHA-256, valida
-5. mcp-client descarga bundle desde URL, calcula SHA-256, valida
-6. mcp-client guarda en caché local (~/.mcp/cache/)
-7. mcp-client parsea manifest, selecciona entrypoint
-8. mcp-client aplica sandbox y ejecuta proceso
-9. mcp-client audita inicio/fin en ~/.mcp/audit.log
+┌─────────────────────────────────────────────────────────────────┐
+│                                                                 │
+│  User: mcp run org/name@version                                │
+│                                                                 │
+│  ┌──────────────────────────────────────────────────────────┐  │
+│  │ CLI (cobra)                                              │  │
+│  │ - Parse args, load config, validate inputs              │  │
+│  └──────────────────────────────────────────────────────────┘  │
+│                          ↓                                      │
+│  ┌──────────────────────────────────────────────────────────┐  │
+│  │ Registry Client                                          │  │
+│  │ - Resolve reference → get manifest/bundle digests       │  │
+│  │ - Download with auth, follow redirects                  │  │
+│  │ - Retry with exponential backoff                         │  │
+│  └──────────────────────────────────────────────────────────┘  │
+│                          ↓                                      │
+│  ┌──────────────────────────────────────────────────────────┐  │
+│  │ Cache (Content-Addressable)                             │  │
+│  │ - Store by SHA-256 digest                               │  │
+│  │ - Concurrent access with locking                        │  │
+│  │ - LRU eviction when size limit reached                  │  │
+│  └──────────────────────────────────────────────────────────┘  │
+│                          ↓                                      │
+│  ┌──────────────────────────────────────────────────────────┐  │
+│  │ Manifest Parser & Validator                             │  │
+│  │ - Parse JSON schema                                      │  │
+│  │ - Validate coherence (manifest → bundle)                │  │
+│  │ - Select correct entrypoint for OS/arch                │  │
+│  └──────────────────────────────────────────────────────────┘  │
+│                          ↓                                      │
+│  ┌──────────────────────────────────────────────────────────┐  │
+│  │ Policy Engine                                            │  │
+│  │ - Apply network allowlist                                │  │
+│  │ - Filter environment variables                           │  │
+│  │ - Control subprocess execution                           │  │
+│  └──────────────────────────────────────────────────────────┘  │
+│                          ↓                                      │
+│  ┌──────────────────────────────────────────────────────────┐  │
+│  │ Sandbox (Platform-Specific)                             │  │
+│  │ - Linux: cgroups v2, namespaces, seccomp                │  │
+│  │ - macOS: rlimits, timeouts (limited isolation)          │  │
+│  │ - Windows: Job Objects                                   │  │
+│  └──────────────────────────────────────────────────────────┘  │
+│                          ↓                                      │
+│  ┌──────────────────────────────────────────────────────────┐  │
+│  │ Executor (STDIO / HTTP)                                  │  │
+│  │ - Start process with sandbox config                      │  │
+│  │ - Handle stdin/stdout for STDIO mode                     │  │
+│  │ - Proxy HTTP requests in HTTP mode                       │  │
+│  │ - Monitor for timeout/resource exhaustion                │  │
+│  └──────────────────────────────────────────────────────────┘  │
+│                          ↓                                      │
+│  ┌──────────────────────────────────────────────────────────┐  │
+│  │ Audit Logger                                             │  │
+│  │ - Log start/end events                                   │  │
+│  │ - Record resource usage, exit code                       │  │
+│  │ - Redact secrets from logs                               │  │
+│  └──────────────────────────────────────────────────────────┘  │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
-## Independencia del registry
+## Key Concepts
 
-Aunque mcp-client está diseñado para trabajar con mcp-registry, **NO está acoplado a una implementación específica**:
+### Package Reference
 
-- La URL del registry es configurable (`~/.mcp/config.yaml` o `--registry` flag)
-- Cualquier servidor que implemente el contrato de API (ver `docs/REGISTRY.md`) es compatible
-- El launcher solo requiere:
-  - Endpoint `/v1/packages/:org/:name/resolve` que devuelva digests + URLs
-  - Artefactos descargables (manifest JSON, bundle tar.gz)
-  - Digests SHA-256 válidos
+Identifies a package version immutably:
 
-Esto permite:
-- Usar registries privados/enterprise
-- Mirror de registries públicos
-- Desarrollo y testing con mocks locales
+- **Semantic Version**: `org/name@1.2.3` (resolved by registry)
+- **SHA Reference**: `org/name@sha:abc123def456` (git commit SHA)
+- **Digest Reference**: `org/name@digest:sha256:abc123...` (full digest)
 
-## Conceptos clave
+Example:
+```bash
+mcp run acme/hello-world@1.2.3
+mcp run acme/hello-world@sha:abc123
+mcp run acme/hello-world@digest:sha256:abc123...
+```
 
 ### Manifest
-Archivo JSON que describe el paquete MCP:
-- Metadatos: nombre, versión, autor, licencia
-- Entrypoints por plataforma (linux/darwin/windows) y arquitectura
-- Transport: STDIO o HTTP
-- Políticas de seguridad: allowlist de red, env vars, subprocess
+
+JSON file describing an MCP package:
+
+```json
+{
+  "name": "org/hello-world",
+  "version": "1.2.3",
+  "description": "Simple hello world MCP server",
+  "author": "Acme Corp",
+  "license": "MIT",
+
+  "entrypoints": {
+    "linux-amd64": {
+      "command": "./bin/mcp-server",
+      "args": ["--mode", "stdio"]
+    },
+    "darwin-amd64": {
+      "command": "./bin/mcp-server",
+      "args": ["--mode", "stdio"]
+    }
+  },
+
+  "transport": "stdio",
+
+  "environment": {
+    "allowed_names": ["LOG_LEVEL", "API_KEY"],
+    "deny_patterns": ["*_PASSWORD", "*_SECRET"]
+  },
+
+  "network": {
+    "allowlist": ["api.example.com", "10.0.0.0/8"]
+  },
+
+  "subprocess": false,
+
+  "resources": {
+    "cpu_millicores": 1000,
+    "memory_mb": 512,
+    "max_processes": 10,
+    "max_fds": 100
+  }
+}
+```
 
 ### Bundle
-Archivo tar.gz con el código ejecutable del servidor MCP. Puede contener:
-- Binario nativo compilado
-- Scripts (Python, Node.js) + dependencias vendored
-- Assets adicionales
+
+Compressed archive (tar.gz) containing executable code:
+
+```
+bundle.tar.gz
+├── bin/
+│   ├── mcp-server          (compiled binary)
+│   └── helper-tool
+├── lib/
+│   ├── libfoo.so
+│   └── libbar.so
+├── python/
+│   └── requirements.txt
+└── data/
+    └── config.json
+```
 
 ### Digest
-Hash SHA-256 inmutable que identifica de forma única un manifest o bundle.
-Formato: `sha256:abc123...` (64 caracteres hex)
+
+SHA-256 hash uniquely identifying an artifact:
+
+```
+sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+```
+
+Format: `sha256:` prefix + 64 hex characters
+
+**Property**: Content-addressable (same content = same digest)
+
+### Entrypoint
+
+Command to execute for given OS/architecture:
+
+```json
+{
+  "entrypoints": {
+    "linux-amd64": {
+      "command": "./bin/mcp-server",
+      "args": ["--mode", "stdio"]
+    },
+    "darwin-arm64": {
+      "command": "./bin/mcp-server-arm64",
+      "args": ["--mode", "stdio"]
+    }
+  }
+}
+```
+
+mcp-client automatically selects the correct entrypoint based on runtime OS and CPU architecture.
+
+### Transport
+
+How the MCP server communicates:
+
+- **STDIO**: Server reads JSON-RPC from stdin, writes to stdout
+- **HTTP**: Server exposes HTTP API on configured port
 
 ### Cache
-Almacenamiento local content-addressable en `~/.mcp/cache/`:
+
+Local content-addressable storage:
+
 ```
 ~/.mcp/cache/
-  manifests/
-    sha256:abc123.../manifest.json
-  bundles/
-    sha256:def456.../bundle.tar.gz
-  metadata.db
+├── manifests/
+│   └── sha256:abc123.../manifest.json
+└── bundles/
+    └── sha256:def456.../bundle.tar.gz
 ```
 
-## Modelo de seguridad
+**Benefits**:
+- Avoid re-downloading same artifacts
+- Concurrent access with locking
+- Automatic eviction when full
 
-mcp-client implementa **aislamiento ligero** (no virtualización completa):
+### Resolve
+
+Registry API operation to resolve package reference:
+
+```
+Request:
+  GET /v1/packages/org/name/resolve?ref=1.2.3
+
+Response:
+  {
+    "manifest": {
+      "digest": "sha256:abc123...",
+      "url": "https://registry.example.com/manifests/..."
+    },
+    "bundle": {
+      "digest": "sha256:def456...",
+      "url": "https://registry.example.com/bundles/..."
+    }
+  }
+```
+
+## Execution Workflow
+
+```
+1. User runs: mcp run acme/hello-world@1.2.3
+
+2. Resolve
+   - Query registry: POST /v1/packages/acme/hello-world/resolve
+   - Get manifest digest, bundle digest, download URLs
+
+3. Download (or use cache)
+   - Check cache for manifest (by digest)
+   - If not cached, download from URL
+   - Repeat for bundle
+
+4. Validate
+   - Calculate SHA-256 of downloaded manifest
+   - Compare with expected digest → reject if mismatch
+   - Repeat for bundle
+   - Store in cache
+
+5. Parse
+   - Load manifest JSON
+   - Validate schema and coherence
+   - Select entrypoint for current OS/arch
+
+6. Policy
+   - Apply network allowlist
+   - Filter environment variables
+   - Check subprocess permissions
+
+7. Sandbox
+   - Configure resource limits (CPU, memory, pids, fds)
+   - Set up filesystem isolation
+   - Enable network restrictions
+
+8. Execute
+   - Fork process with sandbox config
+   - Start MCP server executable
+   - Connect stdin/stdout (STDIO mode)
+
+9. Audit
+   - Log start event: package, version, digest, user, PID
+   - Wait for process completion or timeout
+   - Log end event: exit code, duration, resource usage
+
+10. Cleanup
+    - Terminate process if timeout exceeded
+    - Close file descriptors
+    - Clean up temporary files
+```
+
+## Security Model (Lightweight)
+
+mcp-client implements **process-level isolation** (not VM-level):
 
 ### Linux
-- Límites: rlimits + cgroups v2
-- Red: network namespaces (default-deny)
-- Filesystem: bind mount + tmpfs
-- Subprocess: seccomp para bloquear fork/exec
+- **CPU/Memory Limits**: cgroups v2 + rlimits
+- **Network Isolation**: Network namespaces (default-deny)
+- **Filesystem Isolation**: Bind mounts + mount namespaces
+- **Subprocess Control**: seccomp filters
 
 ### macOS
-- Límites: rlimits + timeouts
-- Red: **NO DISPONIBLE** (sin network namespaces)
-- Filesystem: directorio temporal + permisos UNIX
-- Subprocess: monitoreo básico
+- **CPU/Memory Limits**: rlimits only (soft limits)
+- **Network Isolation**: Not available (no netns)
+- **Filesystem Isolation**: Directory permissions
+- **Subprocess Control**: Process monitoring
 
 ### Windows
-- Límites: Job Objects (CPU, memoria, pids)
-- Red: **NO DISPONIBLE** (sin drivers WFP)
-- Filesystem: directorio temporal + permisos NTFS
-- Subprocess: heredan restricciones del Job Object
+- **CPU/Memory Limits**: Job Objects
+- **Network Isolation**: Not available (requires drivers)
+- **Filesystem Isolation**: NTFS permissions
+- **Subprocess Control**: Job Object process limits
 
-**Ver `docs/SECURITY.md` para detalles completos del threat model.**
+**Important**: See `docs/SECURITY.md` for detailed threat model and limitations per platform.
 
-## Próximos pasos
+## Module Structure
 
-- Lee [`CLAUDE.md`](../CLAUDE.md) para el contexto completo del proyecto
-- Revisa [`.claude/agents/`](../.claude/agents/) para los perfiles de agentes especializados
-- Consulta [`docs/SECURITY.md`](SECURITY.md) para el modelo de seguridad detallado
-- Consulta [`docs/REGISTRY.md`](REGISTRY.md) para el contrato de integración con el registry
+### `internal/config`
+- Load configuration from YAML, environment, flags
+- Validate configuration
+- Merge sources (priority: flags > env > file > defaults)
+
+### `internal/registry`
+- HTTP client for registry API
+- Resolve package references
+- Download manifests and bundles
+- Handle authentication (JWT, tokens)
+- Follow redirects (presigned URLs)
+
+### `internal/cache`
+- Content-addressable storage by digest
+- Concurrent access with locking
+- Eviction policy (LRU)
+- Digest validation on retrieval
+
+### `internal/manifest`
+- Parse JSON manifests
+- Validate schema and coherence
+- Select entrypoint for OS/arch
+
+### `internal/executor`
+- Execute processes with stdio or HTTP
+- Manage stdin/stdout (STDIO mode)
+- Proxy HTTP requests (HTTP mode)
+- Handle process termination
+
+### `internal/sandbox`
+- Platform-specific resource isolation
+- Apply limits, set up namespaces/Job Objects
+- Implementations: linux.go, darwin.go, windows.go
+
+### `internal/policy`
+- Network allowlist enforcement
+- Environment variable filtering
+- Subprocess control
+
+### `internal/audit`
+- Structured JSON logging
+- Redact secrets
+- Record execution events
+
+### `internal/cli`
+- Command-line interface (Cobra)
+- Commands: run, pull, info, cache, login, doctor
+
+## Quick Start
+
+### Installation
+
+```bash
+# Build from source
+git clone https://github.com/security-mcp/mcp-client
+cd mcp-client
+make build
+./mcp --help
+
+# Or install to $GOPATH/bin
+make install
+```
+
+### Execute a Package
+
+```bash
+# Run with version
+mcp run acme/hello-world@1.2.3
+
+# Check system capabilities
+mcp doctor
+
+# Pre-download package
+mcp pull acme/tool@1.0.0
+
+# Manage cache
+mcp cache ls
+mcp cache rm sha256:abc123...
+```
+
+### Configure Registry
+
+```bash
+# Login to private registry
+mcp login --token my-secret-token
+
+# Or create ~/.mcp/config.yaml
+cat > ~/.mcp/config.yaml <<EOF
+registry:
+  url: https://registry.example.com
+  timeout: 30s
+
+executor:
+  default_timeout: 5m
+  max_memory: 512M
+EOF
+```
+
+## Threat Model Summary
+
+### Covered
+✅ Resource exhaustion (CPU, memory, processes, FDs)
+✅ Filesystem breakout (isolation + permissions)
+✅ Network unauthorized access (allowlist enforcement)
+✅ Secret exposure (log redaction)
+✅ Supply chain attacks (digest validation)
+✅ Subprocess escape (seccomp, policy)
+
+### Not Covered
+❌ Kernel exploits (Spectre, meltdown, etc.)
+❌ Runtime vulnerabilities (Python, Node.js, etc.)
+❌ Hardware side-channels
+❌ Advanced evasion techniques
+❌ Registry compromise (assumes trusted registry)
+
+See `docs/SECURITY.md` for detailed analysis.
+
+## Platform Support
+
+| Feature | Linux | macOS | Windows |
+|---------|-------|-------|---------|
+| Resource Limits | ✅ | ⚠️ | ✅ |
+| Network Isolation | ✅ | ❌ | ❌ |
+| Filesystem Isolation | ✅ | ⚠️ | ⚠️ |
+| Subprocess Control | ✅ | ⚠️ | ✅ |
+| Audit Logging | ✅ | ✅ | ✅ |
+
+⚠️ = Limited or requires specific OS setup
+
+## Configuration
+
+Default config location: `~/.mcp/config.yaml`
+
+See `docs/config.example.yaml` for all options.
+
+## Usage Examples
+
+See `docs/EXAMPLES.md` for:
+- Basic usage (run, pull, info)
+- Environment variables and secrets
+- Resource limits and timeouts
+- Network restrictions
+- Cache management
+- CI/CD integration
+- Troubleshooting
+
+## Security Documentation
+
+See `docs/SECURITY.md` for:
+- Detailed threat model
+- Security invariants (never break these rules)
+- Platform-specific capabilities
+- Digest validation
+- Audit logging
+- Best practices
+
+## Registry Contract
+
+See `docs/REGISTRY-CONTRACT.md` for:
+- API endpoints and formats
+- Authentication methods
+- Content addressing (digests)
+- Version status
+- Error responses
+
+## Command Reference
+
+### `mcp run <ref>`
+Execute an MCP server
+
+```bash
+mcp run acme/tool@1.2.3 --timeout 5m --env LOG_LEVEL=debug
+```
+
+### `mcp pull <ref>`
+Pre-download package without executing
+
+```bash
+mcp pull acme/tool@1.2.3
+```
+
+### `mcp info <ref>`
+Display package information
+
+```bash
+mcp info acme/tool@1.2.3 --json
+```
+
+### `mcp login`
+Authenticate with registry
+
+```bash
+mcp login --token secret123
+```
+
+### `mcp cache ls/rm`
+Manage local cache
+
+```bash
+mcp cache ls
+mcp cache rm sha256:abc123...
+mcp cache rm --all
+```
+
+### `mcp doctor`
+Diagnose system capabilities
+
+```bash
+mcp doctor
+```
+
+## Building and Testing
+
+```bash
+# Format code
+make fmt
+
+# Run tests
+make test
+
+# Run linters
+make lint
+
+# Build binary
+make build
+
+# Clean artifacts
+make clean
+```
+
+## Contributing
+
+This is a reference implementation. Community contributions welcome!
+
+See project issues and discussion threads.
 
 ---
 
-**Nota**: Este documento es parte del setup inicial del proyecto. La implementación completa seguirá las fases definidas en `CLAUDE.md` sección "Implementation Plan".
+**Project Status**: Production Ready (v1.0+)
+
+**Last Updated**: 2026-01-18
+
+**Documentation Version**: 1.0

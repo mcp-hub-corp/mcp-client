@@ -1,0 +1,346 @@
+# mcp-client Configuration Example
+#
+# This file demonstrates all available configuration options.
+# Copy to ~/.mcp/config.yaml and customize for your environment.
+#
+# Priority (highest to lowest):
+# 1. Command-line flags (--registry, --cache-dir, etc.)
+# 2. Environment variables (MCP_REGISTRY_URL, MCP_CACHE_DIR, etc.)
+# 3. Configuration file (~/.mcp/config.yaml)
+# 4. Default values
+
+registry:
+  # Registry URL where MCP packages are published
+  # Supports HTTP and HTTPS
+  # Default: https://registry.mcp.dev
+  url: https://registry.mcp.dev
+
+  # API timeout for registry operations (resolve, download metadata)
+  # Default: 30s
+  timeout: 30s
+
+  # Authentication token for private registries
+  # Generate token in registry web UI
+  # Can also be set via MCP_REGISTRY_TOKEN environment variable
+  # Or login with: mcp login --token YOUR_TOKEN
+  # Note: Token is NOT stored in this file; use ~/.mcp/auth.json instead
+  # token: your-secret-token-here
+
+  # Certificate verification for HTTPS connections
+  # Set to false only for testing with self-signed certs
+  # Default: true (always recommended for production)
+  # verify_ssl: true
+
+cache:
+  # Directory where downloaded packages are stored
+  # Uses content-addressable storage (organized by digest)
+  # Default: ~/.mcp/cache
+  dir: ~/.mcp/cache
+
+  # Maximum total size of cache
+  # Supports suffixes: B, KB, MB, GB
+  # When exceeded, oldest unused artifacts are removed (LRU eviction)
+  # Default: 10GB
+  max_size: 10GB
+
+  # Cache entry TTL (time to live)
+  # Entries older than this are eligible for eviction
+  # Format: Go duration (e.g., 168h, 30d)
+  # Default: 720h (30 days)
+  ttl: 720h
+
+executor:
+  # Default timeout for package execution
+  # If exceeded, process is terminated (SIGTERM, then SIGKILL)
+  # Supports suffixes: s, m, h
+  # Default: 5m
+  default_timeout: 5m
+
+  # CPU limit (millicores; 1000 = 1 full core)
+  # Enforced via:
+  #   - Linux: cgroups cpu.max + rlimit RLIMIT_CPU
+  #   - macOS: rlimit RLIMIT_CPU only
+  #   - Windows: Job Object CPU scheduling
+  # Default: 1000 (1 core)
+  max_cpu: 1000
+
+  # Memory limit (bytes; suffixes: B, KB, MB, GB)
+  # Enforced via:
+  #   - Linux: cgroups memory.max
+  #   - macOS: rlimit RLIMIT_AS (soft limit)
+  #   - Windows: Job Object memory limit
+  # Default: 512MB
+  max_memory: 512M
+
+  # Maximum number of processes (includes main process)
+  # Prevents fork bombs
+  # Enforced via:
+  #   - Linux: cgroups pids.max + rlimit RLIMIT_NPROC
+  #   - macOS: rlimit RLIMIT_NPROC only
+  #   - Windows: Job Object process limit
+  # Default: 10
+  max_pids: 10
+
+  # Maximum number of open file descriptors
+  # Enforced via rlimit RLIMIT_NOFILE
+  # Default: 100
+  max_fds: 100
+
+security:
+  # Network security policy
+  network:
+    # Set to true to enforce default-deny (recommended)
+    # Packages can only access domains in their manifest allowlist
+    # Default: true
+    default_deny: true
+
+  # Subprocess security policy
+  subprocess:
+    # Set to true to block subprocess execution unless manifest allows
+    # Prevents packages from spawning child processes
+    # Default: false (allow by default for compatibility)
+    # Note: If set to true, only packages with subprocess: true in manifest will work
+    allow: false
+
+  # Secret handling
+  secrets:
+    # Redact secret values in logs (never log secret values)
+    # Default: true
+    redact_in_logs: true
+
+    # Secret providers (how secrets are loaded)
+    providers:
+      # Load secrets from environment variables
+      - type: env
+        # Only these patterns are loaded as secrets
+        prefix_patterns:
+          - "*_SECRET"
+          - "*_PASSWORD"
+          - "*_KEY"
+          - "*_TOKEN"
+
+      # Load secrets from file
+      - type: file
+        path: ~/.mcp/secrets.yaml
+        # File format:
+        # secrets:
+        #   DATABASE_PASSWORD: "actual-password"
+        #   API_KEY: "key-value"
+
+# Audit logging configuration
+audit:
+  # Enable/disable audit logging
+  # Default: true
+  enabled: true
+
+  # Location of audit log file
+  # Default: ~/.mcp/audit.log
+  log_file: ~/.mcp/audit.log
+
+  # Log format: json or text
+  # json: Structured logs for SIEM/ELK integration
+  # text: Human-readable format
+  # Default: json
+  format: json
+
+  # Log verbosity level
+  # Options: debug, info, warn, error
+  # Default: info
+  level: info
+
+  # Audit log rotation (if implemented)
+  # rotation:
+  #   max_size_mb: 100
+  #   max_age_days: 30
+  #   max_backups: 10
+
+# Logging configuration
+log:
+  # Log level for console output
+  # Options: debug, info, warn, error
+  # Default: info
+  level: info
+
+  # Log format for console output
+  # Options: text, json
+  # Default: text
+  format: text
+
+  # Enable verbose output (equivalent to --verbose flag)
+  # Default: false
+  verbose: false
+
+# Platform-specific configuration
+platforms:
+  # Linux-specific settings
+  linux:
+    # Use cgroups v2 if available (recommended)
+    # Default: true
+    use_cgroups_v2: true
+
+    # Use network namespaces for isolation (requires CAP_NET_ADMIN)
+    # Default: true
+    use_netns: true
+
+    # Use seccomp for syscall filtering (experimental)
+    # Default: false
+    use_seccomp: false
+
+  # macOS-specific settings
+  darwin:
+    # Use rlimits for resource control
+    # Default: true
+    use_rlimits: true
+
+    # Warning: Network isolation is not available on macOS
+    # You may want to set network.default_deny: false in development
+    # Default: (network.default_deny applies globally)
+
+  # Windows-specific settings
+  windows:
+    # Use Job Objects for resource limits
+    # Default: true
+    use_job_objects: true
+
+    # Warning: Network isolation requires WFP drivers (not commonly installed)
+    # Default: (network.default_deny applies globally)
+
+# Advanced options (rarely needed)
+advanced:
+  # Maximum number of concurrent downloads
+  # Default: 4
+  max_concurrent_downloads: 4
+
+  # Retry configuration for failed downloads
+  retry:
+    # Maximum retry attempts for transient failures (5xx, timeouts)
+    # Default: 3
+    max_attempts: 3
+
+    # Initial backoff duration (exponential backoff applied)
+    # Default: 1s
+    initial_backoff: 1s
+
+    # Maximum backoff duration
+    # Default: 1m
+    max_backoff: 1m
+
+  # HTTP client configuration
+  http:
+    # Maximum number of idle connections
+    # Default: 10
+    max_idle_connections: 10
+
+    # Idle connection timeout
+    # Default: 60s
+    idle_connection_timeout: 60s
+
+    # TLS minimum version
+    # Options: TLS10, TLS11, TLS12, TLS13
+    # Default: TLS12
+    tls_min_version: TLS12
+
+    # Whether to follow HTTP redirects (e.g., S3 presigned URLs)
+    # Default: true
+    follow_redirects: true
+
+    # Maximum number of redirects to follow
+    # Default: 10
+    max_redirects: 10
+
+  # Content verification
+  verification:
+    # Always verify digest even if artifact is cached
+    # Default: true (strongly recommended)
+    always_verify_cached: true
+
+    # Supported digest algorithms
+    # Default: ["sha256"]
+    allowed_digests:
+      - sha256
+
+# Example: Minimal configuration (with defaults)
+# Just uncomment and modify as needed
+#
+# registry:
+#   url: https://registry.example.com
+# cache:
+#   dir: ~/.mcp/cache
+# executor:
+#   default_timeout: 5m
+#   max_memory: 512M
+
+# Example: Development configuration (loose security for testing)
+# WARNING: Do not use in production
+#
+# registry:
+#   url: http://localhost:8080  # Allow HTTP for dev
+# security:
+#   network:
+#     default_deny: false        # Allow all network (testing only)
+#   subprocess:
+#     allow: true                # Allow subprocesses (testing only)
+# log:
+#   level: debug
+
+# Example: Production configuration (strict security)
+#
+# registry:
+#   url: https://registry.example.com
+#   verify_ssl: true
+#   timeout: 30s
+# cache:
+#   max_size: 50GB
+#   ttl: 720h
+# executor:
+#   default_timeout: 5m
+#   max_cpu: 1000
+#   max_memory: 1G
+#   max_pids: 20
+#   max_fds: 200
+# security:
+#   network:
+#     default_deny: true
+#   subprocess:
+#     allow: false
+#   secrets:
+#     redact_in_logs: true
+# audit:
+#   enabled: true
+#   log_file: /var/log/mcp-audit.log
+#   format: json
+# log:
+#   level: info
+
+---
+
+# Additional Notes:
+
+# 1. Environment Variables Override Config File
+#    Examples:
+#    - MCP_REGISTRY_URL=https://custom.registry
+#    - MCP_CACHE_DIR=/tmp/cache
+#    - MCP_LOG_LEVEL=debug
+#    - MCP_REGISTRY_TOKEN=secret (not recommended in shell history)
+
+# 2. Command-Line Flags Override Config and Environment
+#    Examples:
+#    - mcp run acme/tool@1.0.0 --registry https://other.registry
+#    - mcp run acme/tool@1.0.0 --cache-dir /custom/cache
+#    - mcp run acme/tool@1.0.0 --timeout 10m
+
+# 3. Token Storage
+#    Do NOT store sensitive tokens in this file
+#    Instead, use:
+#    - mcp login --token YOUR_TOKEN  (stores in ~/.mcp/auth.json)
+#    - MCP_REGISTRY_TOKEN env var (only in trusted contexts)
+#    - CI/CD secret management
+
+# 4. File Permissions
+#    ~/.mcp/config.yaml should be readable by user only
+#    chmod 600 ~/.mcp/config.yaml
+
+# 5. Platform-Specific Limitations
+#    - macOS: Network isolation not available (no netns)
+#    - Windows: Network isolation requires drivers (not standard)
+#    - Check with: mcp doctor

@@ -168,24 +168,26 @@ func (e *STDIOExecutor) buildEnv() []string {
 	return envSlice
 }
 
-// HTTPExecutor executes MCP servers using HTTP transport
-// TODO: Implement in Phase 8
+// HTTPExecutor executes MCP servers using HTTP transport.
+// Note: HTTP transport support is a future enhancement beyond v1.0.
+// Currently, only STDIO transport is supported.
 type HTTPExecutor struct{}
 
-// NewHTTPExecutor creates a new HTTP executor
-// TODO: Implement in Phase 8
+// NewHTTPExecutor creates a new HTTP executor.
+// Note: This is a placeholder for future HTTP transport support.
 func NewHTTPExecutor() *HTTPExecutor {
 	return &HTTPExecutor{}
 }
 
-// Execute starts the MCP server process with HTTP transport
-// TODO: Implement in Phase 8
+// Execute starts the MCP server process with HTTP transport.
+// Note: HTTP executor implementation is deferred to a future version.
+// Current implementation returns not-implemented error.
 func (e *HTTPExecutor) Execute(ctx context.Context, entrypoint *manifest.Entrypoint, bundlePath string) error {
-	return fmt.Errorf("HTTP executor not yet implemented")
+	return fmt.Errorf("HTTP executor not yet implemented (planned for future release)")
 }
 
-// Stop terminates the MCP server process
-// TODO: Implement in Phase 8
+// Stop terminates the MCP server process.
+// Note: Placeholder for future HTTP transport support.
 func (e *HTTPExecutor) Stop() error {
 	return nil
 }
