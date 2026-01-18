@@ -10,20 +10,20 @@ import (
 
 // Manifest represents the complete MCP manifest structure
 type Manifest struct {
-	SchemaVersion string            `json:"schema_version"`
-	Package       PackageInfo       `json:"package"`
-	Bundle        BundleInfo        `json:"bundle"`
-	Transport     TransportInfo     `json:"transport"`
-	Entrypoints   []Entrypoint      `json:"entrypoints"`
-	Permissions   PermissionsInfo   `json:"permissions_requested"`
-	Limits        LimitsInfo        `json:"limits_recommended"`
+	SchemaVersion string          `json:"schema_version"`
+	Package       PackageInfo     `json:"package"`
+	Bundle        BundleInfo      `json:"bundle"`
+	Transport     TransportInfo   `json:"transport"`
+	Entrypoints   []Entrypoint    `json:"entrypoints"`
+	Permissions   PermissionsInfo `json:"permissions_requested"`
+	Limits        LimitsInfo      `json:"limits_recommended"`
 }
 
 // PackageInfo contains package metadata
 type PackageInfo struct {
-	ID      string `json:"id"`       // "org/name"
-	Version string `json:"version"`  // semantic version
-	GitSHA  string `json:"git_sha"`  // git commit SHA
+	ID      string `json:"id"`      // "org/name"
+	Version string `json:"version"` // semantic version
+	GitSHA  string `json:"git_sha"` // git commit SHA
 }
 
 // BundleInfo contains bundle metadata
@@ -40,24 +40,24 @@ type TransportInfo struct {
 
 // Entrypoint represents an executable entry point
 type Entrypoint struct {
-	OS      string   `json:"os"`        // "linux", "darwin", "windows"
-	Arch    string   `json:"arch"`      // "amd64", "arm64"
-	Command string   `json:"command"`   // path to executable
+	OS      string   `json:"os"`      // "linux", "darwin", "windows"
+	Arch    string   `json:"arch"`    // "amd64", "arm64"
+	Command string   `json:"command"` // path to executable
 	Args    []string `json:"args,omitempty"`
 }
 
 // PermissionsInfo contains requested permissions
 type PermissionsInfo struct {
-	Network      []string `json:"network,omitempty"`       // allowlist of domains/IPs
-	Environment  []string `json:"environment,omitempty"`   // env var allowlist
-	Subprocess   bool     `json:"subprocess"`              // allow subprocess creation
-	FileSystem   []string `json:"filesystem,omitempty"`    // filesystem paths allowlist
+	Network     []string `json:"network,omitempty"`     // allowlist of domains/IPs
+	Environment []string `json:"environment,omitempty"` // env var allowlist
+	Subprocess  bool     `json:"subprocess"`            // allow subprocess creation
+	FileSystem  []string `json:"filesystem,omitempty"`  // filesystem paths allowlist
 }
 
 // LimitsInfo contains recommended resource limits
 type LimitsInfo struct {
-	MaxCPU    int    `json:"max_cpu"`      // millicores
-	MaxMemory string `json:"max_memory"`   // e.g. "512M"
+	MaxCPU    int    `json:"max_cpu"`    // millicores
+	MaxMemory string `json:"max_memory"` // e.g. "512M"
 	MaxPIDs   int    `json:"max_pids"`
 	MaxFDs    int    `json:"max_fds"`
 	Timeout   string `json:"timeout"` // e.g. "5m"
