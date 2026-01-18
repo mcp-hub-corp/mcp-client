@@ -67,3 +67,20 @@ deps: ## Download dependencies
 	go mod download
 
 all: fmt lint test build ## Run fmt, lint, test, and build
+
+docker-build: ## Build Docker image
+	@echo "Building Docker image..."
+	docker build -t mcp-client:latest .
+
+docker-run: docker-build ## Run mcp in Docker container
+	@echo "Running mcp in Docker..."
+	docker run --rm mcp-client:latest --version
+
+release-snapshot: ## Build release snapshot (requires goreleaser)
+	@echo "Building release snapshot..."
+	@if command -v goreleaser >/dev/null 2>&1; then \
+		goreleaser release --snapshot --clean; \
+	else \
+		echo "goreleaser not found. Install from https://goreleaser.com/install/"; \
+		exit 1; \
+	fi
