@@ -157,8 +157,15 @@ var doctorCmd = &cobra.Command{
 	Use:   "doctor",
 	Short: "Diagnose system capabilities",
 	Long:  `Diagnose system capabilities for running MCP servers (OS, cgroups, namespaces, etc.).`,
-	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Fprintln(os.Stderr, "not implemented yet")
-		os.Exit(1)
+	RunE: func(cmd *cobra.Command, args []string) error {
+		return runDoctor()
 	},
+}
+
+var doctorFlags struct {
+	jsonOutput bool
+}
+
+func init() {
+	doctorCmd.Flags().BoolVar(&doctorFlags.jsonOutput, "json", false, "Output in JSON format")
 }
