@@ -83,7 +83,11 @@ func TestExecute_CommandNotFound(t *testing.T) {
 
 func TestSTDIOExecutor_EnvironmentHandling(t *testing.T) {
 	executor, err := NewSTDIOExecutor(t.TempDir(), &policy.ExecutionLimits{
-		Timeout: time.Minute,
+		MaxCPU:    1000,
+		MaxMemory: "512M",
+		MaxPIDs:   32,
+		MaxFDs:    256,
+		Timeout:   time.Minute,
 	}, map[string]string{
 		"KEY1": "value1",
 		"KEY2": "value2",
@@ -96,7 +100,11 @@ func TestSTDIOExecutor_EnvironmentHandling(t *testing.T) {
 
 func TestSTDIOExecutor_EmptyEnvironment(t *testing.T) {
 	executor, err := NewSTDIOExecutor(t.TempDir(), &policy.ExecutionLimits{
-		Timeout: time.Minute,
+		MaxCPU:    1000,
+		MaxMemory: "512M",
+		MaxPIDs:   32,
+		MaxFDs:    256,
+		Timeout:   time.Minute,
 	}, nil)
 	require.NoError(t, err)
 	assert.NotNil(t, executor)
@@ -104,9 +112,14 @@ func TestSTDIOExecutor_EmptyEnvironment(t *testing.T) {
 }
 
 func TestSetLogger(t *testing.T) {
-	executor, _ := NewSTDIOExecutor(t.TempDir(), &policy.ExecutionLimits{
-		Timeout: time.Minute,
+	executor, err := NewSTDIOExecutor(t.TempDir(), &policy.ExecutionLimits{
+		MaxCPU:    1000,
+		MaxMemory: "512M",
+		MaxPIDs:   32,
+		MaxFDs:    256,
+		Timeout:   time.Minute,
 	}, nil)
+	require.NoError(t, err)
 
 	// Should not panic
 	executor.SetLogger(nil)
