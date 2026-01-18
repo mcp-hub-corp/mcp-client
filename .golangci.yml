@@ -1,0 +1,76 @@
+run:
+  timeout: 5m
+  tests: true
+
+linters:
+  enable:
+    - errcheck      # Check for unchecked errors
+    - gosimple      # Simplify code
+    - govet         # Vet examines Go source code
+    - ineffassign   # Detect ineffectual assignments
+    - staticcheck   # Static analysis
+    - typecheck     # Type checking
+    - unused        # Check for unused code
+    - gofmt         # Check code formatting
+    - goimports     # Check import formatting
+    - misspell      # Check for misspelled words
+    - gocritic      # Comprehensive Go linter
+    - gosec         # Security checker
+    - revive        # Fast, configurable, extensible linter
+    - unconvert     # Remove unnecessary type conversions
+    - unparam       # Find unused function parameters
+
+linters-settings:
+  errcheck:
+    check-type-assertions: true
+    check-blank: true
+
+  govet:
+    enable:
+      - shadow
+
+  gofmt:
+    simplify: true
+
+  gosec:
+    excludes:
+      - G204 # Subprocess launched with variable
+      - G304 # File path provided as taint input
+
+  gocritic:
+    enabled-tags:
+      - diagnostic
+      - style
+      - performance
+    disabled-checks:
+      - unnamedResult
+      - hugeParam
+
+  revive:
+    confidence: 0.8
+
+issues:
+  exclude-use-default: false
+  max-issues-per-linter: 0
+  max-same-issues: 0
+  exclude-dirs:
+    - vendor
+    - testdata
+
+  exclude-rules:
+    # Exclude some linters from running on tests
+    - path: _test\.go
+      linters:
+        - errcheck
+        - gosec
+
+    # Exclude "not implemented yet" error checks in placeholder code
+    - text: "Error return value is not checked"
+      linters:
+        - errcheck
+
+output:
+  formats:
+    - format: colored-line-number
+  print-issued-lines: true
+  print-linter-name: true
