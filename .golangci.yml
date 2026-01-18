@@ -69,6 +69,12 @@ issues:
       linters:
         - errcheck
 
+    # Allow nolint directives in registry package for intentional error ignores
+    - path: internal/registry/.*\.go
+      linters:
+        - gocritic
+      text: "whyNoLint"
+
 output:
   formats:
     - format: colored-line-number
