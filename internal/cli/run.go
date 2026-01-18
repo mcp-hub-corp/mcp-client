@@ -242,13 +242,43 @@ func runMCPServer(cmd *cobra.Command, args []string) error {
 	}
 
 	// Apply execution limits from policy
+	// CRITICAL: ApplyLimits ALWAYS returns non-nil limits with mandatory safe defaults
 	limits := pol.ApplyLimits(mf)
-	logger.Debug("execution limits applied",
-		slog.Int("max_cpu", limits.MaxCPU),
+
+	// CRITICAL SECURITY: Verify limits are properly set before proceeding
+	// This is a fail-safe to ensure execution without limits is NEVER possible
+	if limits == nil {
+		return fmt.Errorf("CRITICAL SECURITY ERROR: ApplyLimits returned nil - execution without limits is forbidden")
+	}
+
+	if limits.MaxCPU <= 0 {
+		return fmt.Errorf("CRITICAL SECURITY ERROR: MaxCPU not set properly (%d) - execution without CPU limits is forbidden", limits.MaxCPU)
+	}
+
+	if limits.MaxMemory == "" {
+		return fmt.Errorf("CRITICAL SECURITY ERROR: MaxMemory not set - execution without memory limits is forbidden")
+	}
+
+	if limits.MaxPIDs <= 0 {
+		return fmt.Errorf("CRITICAL SECURITY ERROR: MaxPIDs not set properly (%d) - execution without PID limits is forbidden", limits.MaxPIDs)
+	}
+
+	if limits.MaxFDs <= 0 {
+		return fmt.Errorf("CRITICAL SECURITY ERROR: MaxFDs not set properly (%d) - execution without file descriptor limits is forbidden", limits.MaxFDs)
+	}
+
+	if limits.Timeout <= 0 {
+		return fmt.Errorf("CRITICAL SECURITY ERROR: Timeout not set properly (%v) - execution without timeout is forbidden", limits.Timeout)
+	}
+
+	// Log the limits being applied (INFO level for security audit trail)
+	logger.Info("SECURITY: applying mandatory execution limits",
+		slog.Int("max_cpu_millicores", limits.MaxCPU),
 		slog.String("max_memory", limits.MaxMemory),
 		slog.Int("max_pids", limits.MaxPIDs),
 		slog.Int("max_fds", limits.MaxFDs),
 		slog.Duration("timeout", limits.Timeout),
+		slog.String("security_policy", "mandatory_limits_enforced"),
 	)
 
 	// Load environment variables

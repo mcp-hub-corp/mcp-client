@@ -92,11 +92,14 @@ func (p *Policy) ApplyManifestPermissions(m *manifest.Manifest) error {
 }
 
 // ApplyLimits merges policy limits with manifest limits (stricter wins)
+// CRITICAL SECURITY: ALWAYS returns non-nil limits with mandatory safe defaults
+// This function NEVER allows execution without resource limits
 func (p *Policy) ApplyLimits(m *manifest.Manifest) *ExecutionLimits {
 	if m == nil {
 		m = &manifest.Manifest{}
 	}
 
+	// Start with policy limits (which come from config with mandatory defaults)
 	limits := &ExecutionLimits{
 		MaxCPU:    p.MaxCPU,
 		MaxMemory: p.MaxMemory,
@@ -105,7 +108,39 @@ func (p *Policy) ApplyLimits(m *manifest.Manifest) *ExecutionLimits {
 		Timeout:   p.DefaultTimeout,
 	}
 
-	// Apply manifest limits if more restrictive
+	// CRITICAL: Verify limits are set and valid before proceeding
+	// This is a fail-safe check to catch configuration errors
+	if limits.MaxCPU <= 0 {
+		// Fallback to absolute minimum (EMERGENCY)
+		limits.MaxCPU = 100 // 100 millicores minimum
+		p.logger.Error("CRITICAL: MaxCPU not set, applying emergency minimum", slog.Int("millicores", limits.MaxCPU))
+	}
+
+	if limits.MaxMemory == "" {
+		// Fallback to absolute minimum (EMERGENCY)
+		limits.MaxMemory = "256M"
+		p.logger.Error("CRITICAL: MaxMemory not set, applying emergency minimum", slog.String("limit", limits.MaxMemory))
+	}
+
+	if limits.MaxPIDs <= 0 {
+		// Fallback to absolute minimum (EMERGENCY)
+		limits.MaxPIDs = 10
+		p.logger.Error("CRITICAL: MaxPIDs not set, applying emergency minimum", slog.Int("pids", limits.MaxPIDs))
+	}
+
+	if limits.MaxFDs <= 0 {
+		// Fallback to absolute minimum (EMERGENCY)
+		limits.MaxFDs = 64
+		p.logger.Error("CRITICAL: MaxFDs not set, applying emergency minimum", slog.Int("fds", limits.MaxFDs))
+	}
+
+	if limits.Timeout <= 0 {
+		// Fallback to absolute minimum (EMERGENCY)
+		limits.Timeout = 1 * time.Minute
+		p.logger.Error("CRITICAL: Timeout not set, applying emergency minimum", slog.Duration("timeout", limits.Timeout))
+	}
+
+	// Apply manifest limits if more restrictive (stricter wins)
 	if m.Limits.MaxCPU > 0 && m.Limits.MaxCPU < limits.MaxCPU {
 		limits.MaxCPU = m.Limits.MaxCPU
 		p.logger.Debug("manifest limit is stricter", slog.String("limit", "max_cpu"))
@@ -134,6 +169,28 @@ func (p *Policy) ApplyLimits(m *manifest.Manifest) *ExecutionLimits {
 				p.logger.Debug("manifest limit is stricter", slog.String("limit", "timeout"))
 			}
 		}
+	}
+
+	// FINAL VALIDATION: Ensure all limits are still set (post-manifest application)
+	if limits.MaxCPU <= 0 {
+		limits.MaxCPU = 100 // Absolute minimum
+		p.logger.Warn("manifest provided invalid MaxCPU, applying minimum")
+	}
+	if limits.MaxMemory == "" {
+		limits.MaxMemory = "256M" // Absolute minimum
+		p.logger.Warn("manifest provided invalid MaxMemory, applying minimum")
+	}
+	if limits.MaxPIDs <= 0 {
+		limits.MaxPIDs = 10 // Absolute minimum
+		p.logger.Warn("manifest provided invalid MaxPIDs, applying minimum")
+	}
+	if limits.MaxFDs <= 0 {
+		limits.MaxFDs = 64 // Absolute minimum
+		p.logger.Warn("manifest provided invalid MaxFDs, applying minimum")
+	}
+	if limits.Timeout <= 0 {
+		limits.Timeout = 1 * time.Minute // Absolute minimum
+		p.logger.Warn("manifest provided invalid Timeout, applying minimum")
 	}
 
 	return limits

@@ -20,6 +20,14 @@ type Config struct {
 	LogLevel     string        `mapstructure:"log_level"`
 	AuditEnabled bool          `mapstructure:"audit_enabled"`
 	AuditLogFile string        `mapstructure:"audit_log_file"`
+
+	// Default limits (ALWAYS applied, cannot be disabled)
+	// CRITICAL: These mandatory defaults prevent unsafe execution without resource limits
+	DefaultMaxCPU    int    `mapstructure:"default_max_cpu"`     // millicores, default 1000 (1 core)
+	DefaultMaxMemory string `mapstructure:"default_max_memory"`  // default "512M"
+	DefaultMaxPIDs   int    `mapstructure:"default_max_pids"`    // default 32
+	DefaultMaxFDs    int    `mapstructure:"default_max_fds"`     // default 256
+	DefaultTimeout   string `mapstructure:"default_timeout"`     // default "5m"
 }
 
 // LoadConfig loads configuration from file and environment variables
@@ -35,6 +43,14 @@ func LoadConfig() (*Config, error) {
 	viper.SetDefault("log_level", "info")
 	viper.SetDefault("audit_enabled", true)
 	viper.SetDefault("audit_log_file", filepath.Join(getHomeDir(), ".mcp", "audit.log"))
+
+	// CRITICAL: Mandatory default limits (ALWAYS applied, cannot be disabled)
+	// These defaults ensure execution without limits is NEVER possible
+	viper.SetDefault("default_max_cpu", 1000)      // 1 core (millicores)
+	viper.SetDefault("default_max_memory", "512M")
+	viper.SetDefault("default_max_pids", 32)
+	viper.SetDefault("default_max_fds", 256)
+	viper.SetDefault("default_timeout", "5m")
 
 	// Set config file location
 	configDir := filepath.Join(getHomeDir(), ".mcp")
