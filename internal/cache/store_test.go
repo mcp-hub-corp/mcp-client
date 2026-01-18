@@ -281,9 +281,9 @@ func TestSize_MultipleArtifacts(t *testing.T) {
 	store, err := NewStore(tempDir)
 	require.NoError(t, err)
 
-	data1 := []byte("manifest data")     // 13 bytes
-	data2 := []byte("bundle data")       // 11 bytes
-	data3 := []byte("another artifact")  // 16 bytes
+	data1 := []byte("manifest data")    // 13 bytes
+	data2 := []byte("bundle data")      // 11 bytes
+	data3 := []byte("another artifact") // 16 bytes
 
 	err = store.PutManifest("sha256:manifest1", data1)
 	require.NoError(t, err)

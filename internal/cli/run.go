@@ -113,59 +113,60 @@ func runMCPServer(cmd *cobra.Command, args []string) error {
 
 	// Get or download manifest
 	var manifestData []byte
+	var manifestErr error
 	if !runFlags.noCache && cacheStore.Exists(manifestDigest, "manifest") {
 		logger.Info("manifest cache hit", slog.String("digest", manifestDigest))
-		manifestData, err = cacheStore.GetManifest(manifestDigest)
-		if err != nil {
-			return fmt.Errorf("failed to read manifest from cache: %w", err)
+		manifestData, manifestErr = cacheStore.GetManifest(manifestDigest)
+		if manifestErr != nil {
+			return fmt.Errorf("failed to read manifest from cache: %w", manifestErr)
 		}
 	} else {
 		logger.Info("downloading manifest", slog.String("digest", manifestDigest))
-		manifestData, err = registryClient.DownloadManifest(ctx, org, manifestDigest)
-		if err != nil {
+		manifestData, manifestErr = registryClient.DownloadManifest(ctx, org, manifestDigest)
+		if manifestErr != nil {
 			if auditLogger != nil {
-				_ = auditLogger.LogError(fmt.Sprintf("%s/%s", org, name), version, fmt.Sprintf("failed to download manifest: %v", err)) //nolint:errcheck // audit logging
+				_ = auditLogger.LogError(fmt.Sprintf("%s/%s", org, name), version, fmt.Sprintf("failed to download manifest: %v", manifestErr)) //nolint:errcheck // audit logging
 			}
-			return fmt.Errorf("failed to download manifest: %w", err)
+			return fmt.Errorf("failed to download manifest: %w", manifestErr)
 		}
 
 		// Validate digest
-		if err := registry.ValidateDigest(manifestData, manifestDigest); err != nil {
+		if validateManifestErr := registry.ValidateDigest(manifestData, manifestDigest); validateManifestErr != nil {
 			if auditLogger != nil {
-				_ = auditLogger.LogError(fmt.Sprintf("%s/%s", org, name), version, fmt.Sprintf("manifest digest validation failed: %v", err)) //nolint:errcheck // audit logging
+				_ = auditLogger.LogError(fmt.Sprintf("%s/%s", org, name), version, fmt.Sprintf("manifest digest validation failed: %v", validateManifestErr)) //nolint:errcheck // audit logging
 			}
-			return fmt.Errorf("manifest digest validation failed: %w", err)
+			return fmt.Errorf("manifest digest validation failed: %w", validateManifestErr)
 		}
 
 		// Store in cache
-		if err := cacheStore.PutManifest(manifestDigest, manifestData); err != nil {
-			logger.Warn("failed to cache manifest", slog.String("error", err.Error()))
+		if cacheManifestErr := cacheStore.PutManifest(manifestDigest, manifestData); cacheManifestErr != nil {
+			logger.Warn("failed to cache manifest", slog.String("error", cacheManifestErr.Error()))
 			// Continue anyway
 		}
 	}
 
 	// Parse and validate manifest
-	mf, err := manifest.Parse(manifestData)
-	if err != nil {
+	mf, parseErr := manifest.Parse(manifestData)
+	if parseErr != nil {
 		if auditLogger != nil {
-			_ = auditLogger.LogError(fmt.Sprintf("%s/%s", org, name), version, fmt.Sprintf("failed to parse manifest: %v", err)) //nolint:errcheck // audit logging
+			_ = auditLogger.LogError(fmt.Sprintf("%s/%s", org, name), version, fmt.Sprintf("failed to parse manifest: %v", parseErr)) //nolint:errcheck // audit logging
 		}
-		return fmt.Errorf("failed to parse manifest: %w", err)
+		return fmt.Errorf("failed to parse manifest: %w", parseErr)
 	}
 
-	if err := manifest.Validate(mf); err != nil {
+	if validateErr := manifest.Validate(mf); validateErr != nil {
 		if auditLogger != nil {
-			_ = auditLogger.LogError(fmt.Sprintf("%s/%s", org, name), version, fmt.Sprintf("manifest validation failed: %v", err)) //nolint:errcheck // audit logging
+			_ = auditLogger.LogError(fmt.Sprintf("%s/%s", org, name), version, fmt.Sprintf("manifest validation failed: %v", validateErr)) //nolint:errcheck // audit logging
 		}
-		return fmt.Errorf("manifest validation failed: %w", err)
+		return fmt.Errorf("manifest validation failed: %w", validateErr)
 	}
 
 	// Apply manifest permissions
-	if err := pol.ApplyManifestPermissions(mf); err != nil {
+	if permErr := pol.ApplyManifestPermissions(mf); permErr != nil {
 		if auditLogger != nil {
-			_ = auditLogger.LogError(fmt.Sprintf("%s/%s", org, name), version, fmt.Sprintf("policy application failed: %v", err)) //nolint:errcheck // audit logging
+			_ = auditLogger.LogError(fmt.Sprintf("%s/%s", org, name), version, fmt.Sprintf("policy application failed: %v", permErr)) //nolint:errcheck // audit logging
 		}
-		return fmt.Errorf("policy application failed: %w", err)
+		return fmt.Errorf("policy application failed: %w", permErr)
 	}
 
 	// Select entrypoint
@@ -185,58 +186,59 @@ func runMCPServer(cmd *cobra.Command, args []string) error {
 
 	// Get or download bundle
 	var bundleData []byte
+	var bundleErr error
 	if !runFlags.noCache && cacheStore.Exists(bundleDigest, "bundle") {
 		logger.Info("bundle cache hit", slog.String("digest", bundleDigest))
-		bundleData, err = cacheStore.GetBundle(bundleDigest)
-		if err != nil {
-			return fmt.Errorf("failed to read bundle from cache: %w", err)
+		bundleData, bundleErr = cacheStore.GetBundle(bundleDigest)
+		if bundleErr != nil {
+			return fmt.Errorf("failed to read bundle from cache: %w", bundleErr)
 		}
 	} else {
 		logger.Info("downloading bundle", slog.String("digest", bundleDigest))
-		bundleData, err = registryClient.DownloadBundle(ctx, org, bundleDigest)
-		if err != nil {
+		bundleData, bundleErr = registryClient.DownloadBundle(ctx, org, bundleDigest)
+		if bundleErr != nil {
 			if auditLogger != nil {
-				_ = auditLogger.LogError(fmt.Sprintf("%s/%s", org, name), version, fmt.Sprintf("failed to download bundle: %v", err)) //nolint:errcheck // audit logging
+				_ = auditLogger.LogError(fmt.Sprintf("%s/%s", org, name), version, fmt.Sprintf("failed to download bundle: %v", bundleErr)) //nolint:errcheck // audit logging
 			}
-			return fmt.Errorf("failed to download bundle: %w", err)
+			return fmt.Errorf("failed to download bundle: %w", bundleErr)
 		}
 
 		// Validate digest
-		if err := registry.ValidateDigest(bundleData, bundleDigest); err != nil {
+		if validateBundleErr := registry.ValidateDigest(bundleData, bundleDigest); validateBundleErr != nil {
 			if auditLogger != nil {
-				_ = auditLogger.LogError(fmt.Sprintf("%s/%s", org, name), version, fmt.Sprintf("bundle digest validation failed: %v", err)) //nolint:errcheck // audit logging
+				_ = auditLogger.LogError(fmt.Sprintf("%s/%s", org, name), version, fmt.Sprintf("bundle digest validation failed: %v", validateBundleErr)) //nolint:errcheck // audit logging
 			}
-			return fmt.Errorf("bundle digest validation failed: %w", err)
+			return fmt.Errorf("bundle digest validation failed: %w", validateBundleErr)
 		}
 
 		// Store in cache
-		if err := cacheStore.PutBundle(bundleDigest, bundleData); err != nil {
-			logger.Warn("failed to cache bundle", slog.String("error", err.Error()))
+		if cacheBundleErr := cacheStore.PutBundle(bundleDigest, bundleData); cacheBundleErr != nil {
+			logger.Warn("failed to cache bundle", slog.String("error", cacheBundleErr.Error()))
 			// Continue anyway
 		}
 	}
 
 	// Create temporary directory for bundle extraction
-	tempDir, err := os.MkdirTemp("", "mcp-bundle-*")
-	if err != nil {
+	tempDir, tempErr := os.MkdirTemp("", "mcp-bundle-*")
+	if tempErr != nil {
 		if auditLogger != nil {
-			_ = auditLogger.LogError(fmt.Sprintf("%s/%s", org, name), version, fmt.Sprintf("failed to create temp directory: %v", err)) //nolint:errcheck // audit logging
+			_ = auditLogger.LogError(fmt.Sprintf("%s/%s", org, name), version, fmt.Sprintf("failed to create temp directory: %v", tempErr)) //nolint:errcheck // audit logging
 		}
-		return fmt.Errorf("failed to create temp directory: %w", err)
+		return fmt.Errorf("failed to create temp directory: %w", tempErr)
 	}
 	defer func() {
-		if err := os.RemoveAll(tempDir); err != nil {
-			logger.Warn("failed to clean up temp directory", slog.String("path", tempDir), slog.String("error", err.Error()))
+		if rmErr := os.RemoveAll(tempDir); rmErr != nil {
+			logger.Warn("failed to clean up temp directory", slog.String("path", tempDir), slog.String("error", rmErr.Error()))
 		}
 	}()
 
 	// Extract bundle
 	logger.Info("extracting bundle", slog.String("path", tempDir))
-	if err := extractBundle(bundleData, tempDir); err != nil {
+	if extractErr := extractBundle(bundleData, tempDir); extractErr != nil {
 		if auditLogger != nil {
-			_ = auditLogger.LogError(fmt.Sprintf("%s/%s", org, name), version, fmt.Sprintf("failed to extract bundle: %v", err)) //nolint:errcheck // audit logging
+			_ = auditLogger.LogError(fmt.Sprintf("%s/%s", org, name), version, fmt.Sprintf("failed to extract bundle: %v", extractErr)) //nolint:errcheck // audit logging
 		}
-		return fmt.Errorf("failed to extract bundle: %w", err)
+		return fmt.Errorf("failed to extract bundle: %w", extractErr)
 	}
 
 	// Apply execution limits from policy
@@ -252,8 +254,8 @@ func runMCPServer(cmd *cobra.Command, args []string) error {
 	// Load environment variables
 	env := make(map[string]string)
 	if runFlags.envFile != "" {
-		if err := loadEnvFile(runFlags.envFile, env); err != nil {
-			logger.Warn("failed to load env file", slog.String("path", runFlags.envFile), slog.String("error", err.Error()))
+		if envFileErr := loadEnvFile(runFlags.envFile, env); envFileErr != nil {
+			logger.Warn("failed to load env file", slog.String("path", runFlags.envFile), slog.String("error", envFileErr.Error()))
 		}
 	}
 
@@ -302,8 +304,10 @@ func runMCPServer(cmd *cobra.Command, args []string) error {
 				outcome = "timeout"
 				exitCode = 124 // Standard timeout exit code
 			case strings.Contains(execErr.Error(), "exit code"):
-				// Try to extract exit code from error message
-				_, _ = fmt.Sscanf(execErr.Error(), "process exited with code %d", &exitCode)
+				// Try to extract exit code from error message, ignore parse errors
+				if _, err := fmt.Sscanf(execErr.Error(), "process exited with code %d", &exitCode); err != nil {
+					exitCode = 1
+				}
 			default:
 				exitCode = 1
 			}
@@ -388,7 +392,7 @@ func extractBundle(data []byte, destDir string) error {
 			}
 
 			// Create file with restrictive permissions
-			file, err := os.OpenFile(targetPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o640)
+			file, err := os.OpenFile(targetPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
 			if err != nil {
 				return fmt.Errorf("failed to create file: %w", err)
 			}
@@ -397,12 +401,12 @@ func extractBundle(data []byte, destDir string) error {
 			limitedReader := io.LimitReader(tarReader, header.Size+1)
 			written, err := io.Copy(file, limitedReader)
 			if err != nil {
-				_ = file.Close() //nolint:errcheck
+				_ = file.Close() //nolint:errcheck // close on error
 				return fmt.Errorf("failed to write file: %w", err)
 			}
 
 			if written > header.Size {
-				_ = file.Close() //nolint:errcheck
+				_ = file.Close() //nolint:errcheck // close on error
 				return fmt.Errorf("file size mismatch: expected %d, got %d", header.Size, written)
 			}
 

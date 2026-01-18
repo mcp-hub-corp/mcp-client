@@ -207,18 +207,19 @@ func parseMemoryString(s string) int64 {
 	}
 
 	var multiplier int64 = 1
-	if strings.HasSuffix(s, "G") {
+	switch {
+	case strings.HasSuffix(s, "G"):
 		multiplier = 1024 * 1024 * 1024
 		s = strings.TrimSuffix(s, "G")
-	} else if strings.HasSuffix(s, "M") {
+	case strings.HasSuffix(s, "M"):
 		multiplier = 1024 * 1024
 		s = strings.TrimSuffix(s, "M")
-	} else if strings.HasSuffix(s, "K") {
+	case strings.HasSuffix(s, "K"):
 		multiplier = 1024
 		s = strings.TrimSuffix(s, "K")
 	}
 
 	var val int64
-	fmt.Sscanf(s, "%d", &val) //nolint:errcheck // parse error code
+	_, _ = fmt.Sscanf(s, "%d", &val) //nolint:errcheck // parse errors result in zero value
 	return val * multiplier
 }
