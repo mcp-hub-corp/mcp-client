@@ -12,8 +12,8 @@
 registry:
   # Registry URL where MCP packages are published
   # Supports HTTP and HTTPS
-  # Default: https://registry.mcp.dev
-  url: https://registry.mcp.dev
+  # Default: https://registry.mcp-hub.info
+  url: https://registry.mcp-hub.info
 
   # API timeout for registry operations (resolve, download metadata)
   # Default: 30s

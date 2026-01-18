@@ -25,7 +25,7 @@ type Config struct {
 // LoadConfig loads configuration from file and environment variables
 func LoadConfig() (*Config, error) {
 	// Set defaults
-	viper.SetDefault("registry_url", "https://registry.mcp.dev")
+	viper.SetDefault("registry_url", "https://registry.mcp-hub.info")
 	viper.SetDefault("cache_dir", filepath.Join(getHomeDir(), ".mcp", "cache"))
 	viper.SetDefault("timeout", 5*time.Minute)
 	viper.SetDefault("max_cpu", 1000) // 1 core

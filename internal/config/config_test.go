@@ -19,7 +19,7 @@ func TestLoadConfig_Defaults(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, cfg)
 
-	assert.Equal(t, "https://registry.mcp.dev", cfg.RegistryURL)
+	assert.Equal(t, "https://registry.mcp-hub.info", cfg.RegistryURL)
 	assert.Contains(t, cfg.CacheDir, ".mcp/cache")
 	assert.Equal(t, 5*time.Minute, cfg.Timeout)
 	assert.Equal(t, 1000, cfg.MaxCPU)

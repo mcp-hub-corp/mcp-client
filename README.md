@@ -1,5 +1,10 @@
 # mcp-client
 
+[![CI](https://github.com/security-mcp/mcp-client/workflows/CI/badge.svg)](https://github.com/security-mcp/mcp-client/actions)
+[![Go Report Card](https://goreportcard.com/badge/github.com/security-mcp/mcp-client)](https://goreportcard.com/report/github.com/security-mcp/mcp-client)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Go Version](https://img.shields.io/github/go-mod/go-version/security-mcp/mcp-client)](go.mod)
+
 Secure CLI launcher for MCP (Model Context Protocol) servers. Download, validate, and execute MCP packages from a compatible registry with lightweight security policies and resource isolation.
 
 ## What is mcp-client?
@@ -149,7 +154,7 @@ Create `~/.mcp/config.yaml`:
 
 ```yaml
 registry:
-  url: https://registry.mcp.dev
+  url: https://registry.mcp-hub.info
   timeout: 30s
 
 cache:
@@ -478,3 +483,31 @@ internal/
 ```
 
 See [docs/OVERVIEW.md](./docs/OVERVIEW.md) for detailed architecture information.
+
+## License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+## Contributing
+
+We welcome contributions! Please read our [CONTRIBUTING.md](CONTRIBUTING.md) for details on our code of conduct and the process for submitting pull requests.
+
+See also [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) for our community guidelines.
+
+## Acknowledgments
+
+- Built with [Cobra](https://github.com/spf13/cobra) for CLI framework
+- Configuration management with [Viper](https://github.com/spf13/viper)
+- Testing with [Testify](https://github.com/stretchr/testify)
+
+## Project Status
+
+**Current Version**: v1.0.0
+
+**Stability**: Production-ready for STDIO transport. HTTP transport planned for v1.1.
+
+See [CHANGELOG.md](CHANGELOG.md) for version history and [docs/SECURITY.md](docs/SECURITY.md) for security details.
+
+---
+
+**Made with ❤️ by the MCP community**

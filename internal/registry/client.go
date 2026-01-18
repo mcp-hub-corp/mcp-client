@@ -15,7 +15,7 @@ import (
 
 const (
 	// DefaultRegistryURL is the default registry URL
-	DefaultRegistryURL = "https://registry.mcp.dev"
+	DefaultRegistryURL = "https://registry.mcp-hub.info"
 
 	// DefaultAPITimeout is the default timeout for API calls
 	DefaultAPITimeout = 30 * time.Second
