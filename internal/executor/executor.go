@@ -27,12 +27,38 @@ type STDIOExecutor struct {
 }
 
 // NewSTDIOExecutor creates a new STDIO executor
+// CRITICAL SECURITY: Validates that execution limits are properly set
+// Returns error if limits are nil or incomplete (execution without limits is forbidden)
 func NewSTDIOExecutor(workDir string, limits *policy.ExecutionLimits, env map[string]string) (*STDIOExecutor, error) {
 	if workDir == "" {
 		return nil, fmt.Errorf("work directory cannot be empty")
 	}
+
+	// CRITICAL: Enforce non-nil limits (execution without limits is forbidden)
 	if limits == nil {
-		return nil, fmt.Errorf("limits cannot be nil")
+		return nil, fmt.Errorf("CRITICAL: limits cannot be nil - execution without resource limits is forbidden")
+	}
+
+	// CRITICAL: Validate all mandatory limits are set
+	// These checks prevent undefined behavior from incomplete limit configurations
+	if limits.MaxCPU <= 0 {
+		return nil, fmt.Errorf("CRITICAL: MaxCPU must be > 0 (got %d) - execution without CPU limits is forbidden", limits.MaxCPU)
+	}
+
+	if limits.MaxMemory == "" {
+		return nil, fmt.Errorf("CRITICAL: MaxMemory must be set (got empty string) - execution without memory limits is forbidden")
+	}
+
+	if limits.MaxPIDs <= 0 {
+		return nil, fmt.Errorf("CRITICAL: MaxPIDs must be > 0 (got %d) - execution without PID limits is forbidden", limits.MaxPIDs)
+	}
+
+	if limits.MaxFDs <= 0 {
+		return nil, fmt.Errorf("CRITICAL: MaxFDs must be > 0 (got %d) - execution without file descriptor limits is forbidden", limits.MaxFDs)
+	}
+
+	if limits.Timeout <= 0 {
+		return nil, fmt.Errorf("CRITICAL: Timeout must be > 0 (got %v) - execution without timeout is forbidden", limits.Timeout)
 	}
 
 	return &STDIOExecutor{
