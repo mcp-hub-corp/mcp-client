@@ -42,6 +42,11 @@
 - Executable documentation
 - Usage patterns for godoc
 
+**E2E Tests** (6 total):
+- CLI commands against real registry
+- Full workflow validation
+- Registry connectivity tests
+
 ## Test Types
 
 ### Unit Tests
@@ -322,8 +327,39 @@ defer server.Close()
 - Race detection enabled (`-race`)
 - Timeout protection (30s default)
 
+### E2E Tests
+
+**Location**: `test/e2e/e2e_test.go`
+
+**Purpose**: Test complete workflows against real registry
+
+**Running E2E Tests**:
+
+```bash
+# Start test registry
+cd /tmp/mcp-registry
+./bin/mcp-registry -config /tmp/mcp-e2e-config.yaml &
+
+# Run E2E tests
+go test ./test/e2e/... -tags=e2e -v
+```
+
+**Current E2E Tests**:
+- TestE2E_Doctor: Test doctor command
+- TestE2E_DoctorJSON: Test JSON output
+- TestE2E_Version: Verify version display
+- TestE2E_Help: Verify help output
+- TestE2E_CacheLs_Empty: Test cache listing
+- TestE2E_RegistryHealth: Verify registry connectivity
+
+**Requirements**:
+- Registry running on localhost:8090
+- Built mcp binary
+- Network access to localhost
+
 ### Future Enhancements
 
+- Add full workflow E2E tests (publish → pull → run)
 - Add benchmark tests for critical paths
 - Profile cache operations
 - Measure download performance
