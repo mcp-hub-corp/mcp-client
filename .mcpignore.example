@@ -1,0 +1,86 @@
+# MCP Client Ignore File
+# This file specifies patterns for files and directories to exclude from the bundle
+# Similar to .gitignore, .dockerignore, etc.
+
+# Version control
+.git/
+.gitignore
+.gitattributes
+
+# Dependencies
+node_modules/
+vendor/
+__pycache__/
+*.egg-info/
+.venv/
+venv/
+
+# Build artifacts
+dist/
+build/
+*.o
+*.a
+*.so
+*.dylib
+*.dll
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+.env.local
+.env.*.local
+
+# Logs and temporary files
+*.log
+*.tmp
+*.temp
+debug/
+coverage/
+
+# OS-specific
+Thumbs.db
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Test coverage
+coverage/
+*.cover
+.coverage
+
+# CI/CD
+.github/workflows/
+.gitlab-ci.yml
+.travis.yml
+
+# Documentation build artifacts
+docs/_build/
+site/
+
+# Cache files
+.cache/
+*.pyc
+*.class
+.gradle/
+
+# Package manager locks (optional - remove if you want to include them)
+yarn.lock
+package-lock.json
+Pipfile.lock
+
+# Sensitive files
+*.key
+*.pem
+*.p8
+*.pfx
+secrets/
+credentials.json
