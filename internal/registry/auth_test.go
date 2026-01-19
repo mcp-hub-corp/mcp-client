@@ -267,3 +267,64 @@ func TestAuthenticationWithRealHTTPRequest(t *testing.T) {
 	assert.Equal(t, token.TokenType, decodedToken.TokenType)
 	assert.Equal(t, token.Registry, decodedToken.Registry)
 }
+
+func TestTokenStorageDelete(t *testing.T) {
+	cacheDir := t.TempDir()
+	ts := NewTokenStorage(cacheDir)
+
+	// Save a token first
+	token := &Token{
+		AccessToken: "test_token_delete",
+		ExpiresAt:   time.Now().Add(24 * time.Hour),
+		TokenType:   "Bearer",
+		Registry:    "https://example.com",
+	}
+
+	err := ts.Save("https://example.com", token)
+	require.NoError(t, err)
+
+	// Verify file exists
+	tokenPath := filepath.Join(cacheDir, "auth.json")
+	assert.FileExists(t, tokenPath)
+
+	// Delete the token
+	err = ts.Delete()
+	require.NoError(t, err)
+
+	// Verify file was deleted
+	assert.NoFileExists(t, tokenPath)
+}
+
+func TestTokenStorageDelete_FileNotExists(t *testing.T) {
+	cacheDir := t.TempDir()
+	ts := NewTokenStorage(cacheDir)
+
+	// Try to delete when file doesn't exist
+	// Should not error (idempotent)
+	err := ts.Delete()
+	assert.NoError(t, err)
+}
+
+func TestTokenStorageDelete_Idempotent(t *testing.T) {
+	cacheDir := t.TempDir()
+	ts := NewTokenStorage(cacheDir)
+
+	// Save a token
+	token := &Token{
+		AccessToken: "test_token_idempotent",
+		ExpiresAt:   time.Now().Add(24 * time.Hour),
+		TokenType:   "Bearer",
+		Registry:    "https://example.com",
+	}
+
+	err := ts.Save("https://example.com", token)
+	require.NoError(t, err)
+
+	// First delete should succeed
+	err = ts.Delete()
+	require.NoError(t, err)
+
+	// Second delete should also succeed (idempotent)
+	err = ts.Delete()
+	require.NoError(t, err)
+}
