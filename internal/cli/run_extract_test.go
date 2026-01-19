@@ -168,7 +168,9 @@ func TestExtractBundleRejectsHardlinks(t *testing.T) {
 			name:           "hardlink to parent directory",
 			hardlinkName:   "hardlink.txt",
 			hardlinkTarget: "../test.txt",
-			expectedErrMsg: "symlinks and hardlinks not allowed in bundle: hardlink.txt -> ../test.txt",
+			// Note: Path traversal is detected in the target file name BEFORE
+			// the hardlink check, so we get "invalid tar path" error
+			expectedErrMsg: "invalid tar path: ../test.txt",
 		},
 	}
 
