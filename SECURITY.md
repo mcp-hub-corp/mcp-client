@@ -1,5 +1,27 @@
 # Security Policy
 
+## ⚠️ CRITICAL: Sandbox Limitations on macOS and Windows
+
+**Before deploying mcp-client in production, READ THIS:**
+
+mcp-client has **KNOWN CRITICAL LIMITATIONS** on macOS and Windows that allow malicious MCPs to bypass resource limits:
+
+- **macOS:** Resource limits (CPU, memory, PIDs) are NOT enforced on child processes
+- **Windows:** Job Object limits are NOT applied (implementation bug)
+
+**See [docs/SECURITY_SANDBOX_LIMITATIONS.md](docs/SECURITY_SANDBOX_LIMITATIONS.md) for details.**
+
+**Safe for production:**
+- ✅ Linux with cgroups
+- ✅ Docker containers on any platform
+- ✅ Kubernetes with Pod resource limits
+
+**NOT safe for production:**
+- ❌ macOS bare metal
+- ❌ Windows bare metal (until Job Objects fix is released)
+
+---
+
 ## Supported Versions
 
 We release patches for security vulnerabilities for the following versions:
@@ -44,7 +66,9 @@ mcp-client implements several security features:
 
 ## Known Limitations
 
-See docs/SECURITY.md for comprehensive threat model and platform-specific limitations.
+**CRITICAL:** See [docs/SECURITY_SANDBOX_LIMITATIONS.md](docs/SECURITY_SANDBOX_LIMITATIONS.md) for sandbox bypass vulnerabilities.
+
+See [docs/SECURITY.md](docs/SECURITY.md) for comprehensive threat model and platform-specific limitations.
 
 ## Security Best Practices
 

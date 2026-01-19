@@ -2,6 +2,28 @@
 
 mcp-client implements lightweight security controls to mitigate common threats when executing untrusted MCP packages. This document explains the threat model, security invariants, and platform-specific capabilities.
 
+---
+
+## ⚠️ CRITICAL: Known Sandbox Vulnerabilities
+
+**Before reading further, understand these CRITICAL limitations:**
+
+mcp-client has documented sandbox bypass vulnerabilities on macOS and Windows. These are NOT theoretical - they are confirmed and exploitable:
+
+- **macOS (CLIENT-CRIT-003):** Resource limits are NOT enforced on child processes
+- **Windows (CLIENT-CRIT-004, CLIENT-CRIT-005):** Job Object limits are NOT applied
+
+**See [SECURITY_SANDBOX_LIMITATIONS.md](SECURITY_SANDBOX_LIMITATIONS.md) for:**
+- Detailed technical analysis of each vulnerability
+- Proof-of-concept attack vectors
+- Mitigation strategies and workarounds
+- Production deployment recommendations
+- Fix status and ETAs
+
+**If deploying in production, read that document FIRST.**
+
+---
+
 ## Threat Model
 
 ### Threats Covered (Reasonable Mitigation)
@@ -193,85 +215,139 @@ executor:
 
 ### macOS
 
-**Supported Security Mechanisms**:
+⚠️ **CRITICAL VULNERABILITY (CLIENT-CRIT-003):** Resource limits are NOT enforced on child processes. See [SECURITY_SANDBOX_LIMITATIONS.md](SECURITY_SANDBOX_LIMITATIONS.md).
 
-1. **Resource Limits (rlimits)**
-   - Same as Linux
-   - Status: ✅ Always available
+**Intended Security Mechanisms** (NOT WORKING):
+
+1. **Resource Limits (rlimits)** ❌ BROKEN
+   - `syscall.Setrlimit()` is called but **does not propagate to child processes**
+   - Go's `exec.Cmd` does not inherit parent's rlimits after exec()
+   - Child processes run with **UNLIMITED** resources
+   - Status: ❌ NOT EFFECTIVE for child processes
 
 2. **Timeouts and Process Termination**
    - Parent process monitors child
    - SIGTERM → SIGKILL after grace period
-   - Status: ✅ Always available
+   - Status: ✅ Always available (THIS IS THE ONLY WORKING CONTROL)
 
 3. **Filesystem Permissions**
    - Execute in temporary directory with restricted UNIX permissions
    - Rely on UNIX DAC (Discretionary Access Control)
-   - Status: ✅ Available (but weak)
+   - Status: ⚠️ Available (but weak, no namespace isolation)
 
 **NOT Available**:
 - Network namespaces (no `unshare`)
 - cgroups (no native support)
 - Seccomp (no BPF equivalent)
 - Sandbox API deprecated
+- **Resource limits on child processes** ❌
 
 **Limitations**:
-- No network isolation: process can access any network interface
-- Weak filesystem isolation: rely on UNIX permissions (user can bypass)
-- CPU throttling limited to timeout + kill
+- ❌ **CRITICAL:** No resource limits on child processes (CPU, memory, PIDs, FDs)
+- ❌ No network isolation: process can access any network interface
+- ❌ Weak filesystem isolation: rely on UNIX permissions (user can bypass)
+- ⚠️ CPU throttling limited to timeout + kill (NO rlimit enforcement)
 
-**Configuration**:
-```yaml
-executor:
-  # macOS only uses these
-  max_memory: 512M        # soft limit via rlimit
-  default_timeout: 5m
-  # Note: max_cpu, max_pids, max_fds apply but less effective than Linux
+**Attack Vectors:**
+```bash
+# All of these will succeed (bypass rlimits)
+:(){ :|:& };:                           # Fork bomb
+python3 -c "bytearray(10*1024**3)"     # Memory bomb
+while true; do :; done                  # CPU hog
 ```
 
-**Warning**: For production use, run mcp-client in a macOS VM or container for better isolation.
+**Configuration:**
+```yaml
+executor:
+  # ⚠️ WARNING: These limits are NOT enforced on macOS
+  max_memory: 512M        # ❌ NOT APPLIED to child processes
+  max_cpu: 1000           # ❌ NOT APPLIED to child processes
+  max_pids: 32            # ❌ NOT APPLIED to child processes
+  max_fds: 256            # ❌ NOT APPLIED to child processes
+  default_timeout: 5m     # ✅ WORKS (parent kills child)
+```
+
+**DO NOT USE macOS FOR PRODUCTION.**
+
+**Mitigation:**
+- ✅ Use Docker container on macOS (cgroups enforced by Docker)
+- ✅ Use Linux VM on macOS (UTM, Parallels, VMware)
+- ✅ Use Kubernetes with resource limits
+- ❌ Do NOT run untrusted MCPs on bare metal macOS
 
 ### Windows
 
-**Supported Security Mechanisms**:
+⚠️ **CRITICAL VULNERABILITIES (CLIENT-CRIT-004, CLIENT-CRIT-005):** Job Object limits are NOT applied to processes. See [SECURITY_SANDBOX_LIMITATIONS.md](SECURITY_SANDBOX_LIMITATIONS.md).
 
-1. **Job Objects**
-   - Process group with shared resource limits
-   - CPU, memory, process count limits
-   - Child processes inherit restrictions
-   - Status: ✅ Always available
+**Intended Security Mechanisms** (NOT WORKING):
+
+1. **Job Objects** ❌ BROKEN
+   - Job Objects are **created** but limits are **NOT applied**
+   - `setJobLimits()` function is a **NO-OP** (returns without calling Windows API)
+   - Processes are assigned to Job Object but run with **UNLIMITED** resources
+   - Status: ❌ NOT EFFECTIVE (implementation bug)
 
 2. **Timeouts and Termination**
    - Parent monitors child via Job Object
    - Automatic termination after timeout
-   - Status: ✅ Always available
+   - Status: ✅ Always available (THIS IS THE ONLY WORKING CONTROL)
 
 3. **NTFS Permissions**
    - File ACLs for directory access control
    - Execute in temporary directory
-   - Status: ✅ Available (but weak)
+   - Status: ⚠️ Available (but weak, no namespace isolation)
 
 **NOT Available**:
 - Network namespaces (no WFP driver without admin)
 - Seccomp equivalent (no BPF)
 - VM-level isolation
+- **Job Object resource limits** ❌ (bug in setJobLimits)
 
 **Limitations**:
-- No network isolation without WFP drivers
-- Weak filesystem isolation: rely on NTFS ACLs
-- Subprocess restrictions limited to Job Object rules
+- ❌ **CRITICAL:** No resource limits applied (memory, CPU, PIDs) due to implementation bug
+- ❌ No network isolation without WFP drivers
+- ❌ Weak filesystem isolation: rely on NTFS ACLs
+- ⚠️ Subprocess restrictions limited to Job Object rules (if limits were applied)
 
-**Configuration**:
-```yaml
-executor:
-  # Windows uses Job Objects for these
-  max_memory: 512M
-  max_cpu: 1000         # affects scheduling, not strict limit
-  default_timeout: 5m
-  # Note: max_pids propagates to Job Object process limit
+**Attack Vectors:**
+```powershell
+# All of these will succeed (Job Object limits not applied)
+$data = New-Object byte[] 10GB                    # Memory bomb
+1..1000 | ForEach-Object { Start-Process cmd }   # Process bomb
+while ($true) { 1+1 }                             # CPU hog
 ```
 
-**Future Work**: Windows Sandbox API (requires Windows 10 Pro+) for stronger isolation.
+**Configuration:**
+```yaml
+executor:
+  # ⚠️ WARNING: These limits are NOT enforced on Windows (bug)
+  max_memory: 512M        # ❌ NOT APPLIED (setJobLimits is NO-OP)
+  max_cpu: 1000           # ❌ NOT APPLIED (setJobLimits is NO-OP)
+  max_pids: 32            # ❌ NOT APPLIED (setJobLimits is NO-OP)
+  default_timeout: 5m     # ✅ WORKS (parent kills child)
+```
+
+**DO NOT USE WINDOWS FOR PRODUCTION (until fixed).**
+
+**Root Cause:**
+```go
+// In windows.go, line 121-169
+func (s *WindowsSandbox) setJobLimits(...) error {
+    // ... prepares limit struct ...
+    _ = info         // ❌ DISCARDS limits!
+    _ = jobHandle    // ❌ NEVER calls SetInformationJobObject!
+    return nil       // ❌ Returns success without applying limits
+}
+```
+
+**Fix Status:** HIGH PRIORITY, ETA 1 week
+
+**Mitigation:**
+- ✅ Use Docker Desktop on Windows (cgroups enforced by Docker)
+- ✅ Use Windows Sandbox (Windows 10 Pro+ only, manual setup)
+- ✅ Use Kubernetes with resource limits
+- ⏳ Wait for fix release
+- ❌ Do NOT run untrusted MCPs on bare metal Windows
 
 ## Digest Validation
 
@@ -577,37 +653,48 @@ These limits are MANDATORY and applied to every execution:
 
 | Layer | Status | Requirements | Description |
 |-------|--------|--------------|-------------|
-| rlimits | ✅ ENABLED | None | CPU, memory, PID, FD limits (MANDATORY) |
+| rlimits | ❌ **BROKEN** | None | ❌ NOT applied to child processes (CLIENT-CRIT-003) |
+| Timeout | ✅ ENABLED | None | Parent monitors and kills child (ONLY working control) |
 | Mount NS | ❌ UNSUPPORTED | N/A | macOS has no mount namespaces |
 | Network NS | ❌ UNSUPPORTED | N/A | macOS has no network namespaces |
 | cgroups | ❌ UNSUPPORTED | N/A | macOS has no cgroups |
 | Umask | ⚠️ INHERITED | None | Process inherits parent umask |
 
-**Security Level**: BASIC (rlimits only)
+**Security Level**: ❌ **CRITICAL - NOT PRODUCTION READY**
 
-**Limitations**:
-- No network isolation possible
-- No filesystem isolation possible
-- RLIMIT_AS is best-effort (may not prevent all allocations)
-- Recommend Linux VM for strict security requirements
+**Actual Status:**
+- ❌ No CPU limits (rlimits not propagated)
+- ❌ No memory limits (rlimits not propagated)
+- ❌ No PID limits (rlimits not propagated)
+- ❌ No FD limits (rlimits not propagated)
+- ✅ Timeout works (parent kills child)
+- ❌ No network isolation possible
+- ❌ No filesystem isolation possible
+
+**Use Docker/VM for production.**
 
 ### Windows
 
 | Layer | Status | Requirements | Description |
 |-------|--------|--------------|-------------|
-| Job Objects | ✅ ENABLED | None | Memory, PID limits (MANDATORY) |
-| Process Limit | ✅ ENABLED | None | Active process count enforcement |
+| Job Objects | ❌ **BROKEN** | None | ❌ Limits NOT applied (CLIENT-CRIT-004, CLIENT-CRIT-005) |
+| Timeout | ✅ ENABLED | None | Parent monitors and kills child (ONLY working control) |
 | Network Isolation | ❌ UNSUPPORTED | WFP/drivers | No network isolation without kernel components |
 | Filesystem | ⚠️ DEGRADED | ACLs | Standard Windows ACL enforcement only |
 | Umask | ❌ UNSUPPORTED | N/A | Windows uses different permission model |
 
-**Security Level**: MODERATE (Job Objects)
+**Security Level**: ❌ **CRITICAL - NOT PRODUCTION READY**
 
-**Limitations**:
-- No network isolation without WFP
-- No namespace support (Windows concept different from Linux)
-- CPU time limits limited (affinity/priority, not hard wall-clock)
-- FD limits not available (Windows uses handles)
+**Actual Status:**
+- ❌ No memory limits (setJobLimits is NO-OP)
+- ❌ No CPU limits (setJobLimits is NO-OP)
+- ❌ No PID limits (setJobLimits is NO-OP)
+- ✅ Timeout works (parent kills child)
+- ❌ No network isolation without WFP
+- ❌ No namespace support (Windows concept different from Linux)
+- ❌ FD limits not available (Windows uses handles)
+
+**Fix ETA: 1 week. Use Docker until fixed.**
 
 ## Default-Deny Security Posture
 

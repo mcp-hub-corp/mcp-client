@@ -100,7 +100,10 @@ func interactiveLogin(logger *slog.Logger, registryURL string, tokenStorage *reg
 	logger.Debug("attempting login", slog.String("username", username), slog.String("registry", registryURL))
 
 	// Create registry client
-	registryClient := registry.NewClient(registryURL)
+	registryClient, err := registry.NewClient(registryURL)
+	if err != nil {
+		return fmt.Errorf("failed to create registry client: %w", err)
+	}
 	registryClient.SetLogger(logger)
 
 	// Perform login

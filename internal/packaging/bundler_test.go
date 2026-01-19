@@ -153,16 +153,79 @@ func TestBundlerAntiPathTraversal(t *testing.T) {
 		t.Skip("Cannot create symlink on this system")
 	}
 
-	// Create bundle - should not fail but should skip the malicious symlink
+	// Create bundle - should skip the malicious symlink (silently)
 	bundler := NewBundler()
 	outputPath := filepath.Join(tmpDir, "bundle.tar.gz")
 	_, err := bundler.Create(sourceDir, outputPath)
 
-	// The operation should complete (symlinks are valid to include or skip)
+	// The operation should complete - symlinks are silently skipped
 	require.NoError(t, err)
-	// The important thing is that the outside file is not included
+	// The symlink should not be included in the bundle
 	files := readTarGz(t, outputPath)
+	assert.NotContains(t, files, "malicious.txt")
 	assert.NotContains(t, files, filepath.Join("..", "outside.txt"))
+}
+
+// TestBundlerRejectsSymlinks tests that symlinks are rejected during bundling
+func TestBundlerRejectsSymlinks(t *testing.T) {
+	tmpDir := t.TempDir()
+	sourceDir := filepath.Join(tmpDir, "source")
+	outputPath := filepath.Join(tmpDir, "bundle.tar.gz")
+
+	require.NoError(t, os.MkdirAll(sourceDir, 0o755))
+
+	// Create normal files
+	require.NoError(t, os.WriteFile(filepath.Join(sourceDir, "normal.txt"), []byte("content"), 0o644))
+
+	// Create a file outside the source directory
+	outsideFile := filepath.Join(tmpDir, "sensitive.txt")
+	require.NoError(t, os.WriteFile(outsideFile, []byte("sensitive data"), 0o644))
+
+	// Create symlink to file outside source directory (data exfiltration attempt)
+	symlinkToOutside := filepath.Join(sourceDir, "exfiltrate.txt")
+	if err := os.Symlink(outsideFile, symlinkToOutside); err != nil {
+		t.Skip("Cannot create symlink on this system")
+	}
+
+	// Create symlink to file inside source directory
+	symlinkToInside := filepath.Join(sourceDir, "link-to-normal.txt")
+	if err := os.Symlink(filepath.Join(sourceDir, "normal.txt"), symlinkToInside); err != nil {
+		t.Skip("Cannot create symlink on this system")
+	}
+
+	// Create directory symlink
+	outsideDir := filepath.Join(tmpDir, "sensitive_dir")
+	require.NoError(t, os.MkdirAll(outsideDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(outsideDir, "secret.txt"), []byte("secret"), 0o644))
+
+	symlinkToDir := filepath.Join(sourceDir, "exfiltrate_dir")
+	if err := os.Symlink(outsideDir, symlinkToDir); err != nil {
+		t.Skip("Cannot create directory symlink on this system")
+	}
+
+	// Create bundle
+	bundler := NewBundler()
+	_, err := bundler.Create(sourceDir, outputPath)
+
+	// The operation should complete - symlinks are silently skipped
+	require.NoError(t, err)
+
+	// Verify bundle contents - symlinks should NOT be included
+	files := readTarGz(t, outputPath)
+
+	// Normal file should be included
+	assert.Contains(t, files, "normal.txt")
+
+	// Symlinks should NOT be included (security fix)
+	assert.NotContains(t, files, "exfiltrate.txt", "symlink to outside file should be rejected")
+	assert.NotContains(t, files, "link-to-normal.txt", "symlink to inside file should be rejected")
+	assert.NotContains(t, files, "exfiltrate_dir", "symlink to directory should be rejected")
+
+	// Verify that sensitive data is not leaked
+	for _, file := range files {
+		assert.NotContains(t, file, "sensitive", "sensitive files should not be included")
+		assert.NotContains(t, file, "secret", "secret files should not be included")
+	}
 }
 
 // TestBundlerMaxSize tests that bundles exceeding max size are rejected

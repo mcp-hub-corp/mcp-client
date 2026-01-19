@@ -16,27 +16,168 @@ import (
 )
 
 func TestNewClient(t *testing.T) {
-	client := NewClient("https://example.com")
+	client, err := NewClient("https://example.com")
+	require.NoError(t, err)
 	assert.NotNil(t, client)
 	assert.Equal(t, "https://example.com", client.baseURL)
 	assert.Empty(t, client.token)
 }
 
 func TestNewClient_DefaultURL(t *testing.T) {
-	client := NewClient("")
+	// Note: This test will fail if the default registry URL cannot be resolved
+	// In CI/CD, you might want to skip this test or mock DNS
+	client, err := NewClient("")
+	if err != nil {
+		// If DNS resolution fails, just verify the error mentions DNS
+		t.Skipf("Skipping test due to DNS resolution failure (expected in some envs): %v", err)
+		return
+	}
 	assert.Equal(t, DefaultRegistryURL, client.baseURL)
 }
 
 func TestNewClientWithToken(t *testing.T) {
-	client := NewClientWithToken("https://example.com", "token123")
+	client, err := NewClientWithToken("https://example.com", "token123")
+	require.NoError(t, err)
 	assert.Equal(t, "https://example.com", client.baseURL)
 	assert.Equal(t, "token123", client.token)
 }
 
 func TestClientSetToken(t *testing.T) {
-	client := NewClient("https://example.com")
+	client, err := NewClient("https://example.com")
+	require.NoError(t, err)
 	client.SetToken("token123")
 	assert.Equal(t, "token123", client.token)
+}
+
+func TestNewClientRejectsPrivateIPs(t *testing.T) {
+	tests := []struct {
+		name    string
+		url     string
+		wantErr bool
+		errMsg  string
+	}{
+		{
+			name:    "reject private IP 10.x.x.x",
+			url:     "https://10.0.0.1",
+			wantErr: true,
+			errMsg:  "private IP",
+		},
+		{
+			name:    "reject private IP 192.168.x.x",
+			url:     "https://192.168.1.1",
+			wantErr: true,
+			errMsg:  "private IP",
+		},
+		{
+			name:    "reject private IP 172.16.x.x",
+			url:     "https://172.16.0.1",
+			wantErr: true,
+			errMsg:  "private IP",
+		},
+		{
+			name:    "allow loopback 127.0.0.1 (localhost)",
+			url:     "http://127.0.0.1",
+			wantErr: false,
+		},
+		{
+			name:    "reject AWS metadata IP",
+			url:     "https://169.254.169.254",
+			wantErr: true,
+			errMsg:  "private IP",
+		},
+		{
+			name:    "allow public IP",
+			url:     "https://8.8.8.8",
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			client, err := NewClient(tt.url)
+			if tt.wantErr {
+				assert.Error(t, err)
+				if tt.errMsg != "" {
+					assert.Contains(t, err.Error(), tt.errMsg)
+				}
+				assert.Nil(t, client)
+			} else {
+				assert.NoError(t, err)
+				assert.NotNil(t, client)
+			}
+		})
+	}
+}
+
+func TestNewClientLocalhostAllowed(t *testing.T) {
+	tests := []struct {
+		name string
+		url  string
+	}{
+		{
+			name: "allow localhost with http",
+			url:  "http://localhost:8080",
+		},
+		{
+			name: "allow 127.0.0.1 with http",
+			url:  "http://127.0.0.1:8080",
+		},
+		{
+			name: "allow ::1 with http",
+			url:  "http://[::1]:8080",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			client, err := NewClient(tt.url)
+			assert.NoError(t, err)
+			assert.NotNil(t, client)
+		})
+	}
+}
+
+func TestNewClientRequiresHTTPS(t *testing.T) {
+	tests := []struct {
+		name    string
+		url     string
+		wantErr bool
+	}{
+		{
+			name:    "reject http for public domain",
+			url:     "http://example.com",
+			wantErr: true,
+		},
+		{
+			name:    "allow https for public domain",
+			url:     "https://example.com",
+			wantErr: false,
+		},
+		{
+			name:    "allow http for localhost",
+			url:     "http://localhost",
+			wantErr: false,
+		},
+		{
+			name:    "reject http for public IP",
+			url:     "http://8.8.8.8",
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			client, err := NewClient(tt.url)
+			if tt.wantErr {
+				assert.Error(t, err)
+				assert.Contains(t, err.Error(), "must use https")
+				assert.Nil(t, client)
+			} else {
+				assert.NoError(t, err)
+				assert.NotNil(t, client)
+			}
+		})
+	}
 }
 
 func TestClientResolve_Success(t *testing.T) {
@@ -69,7 +210,8 @@ func TestClientResolve_Success(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient(server.URL)
+	client, err := NewClient(server.URL)
+	require.NoError(t, err)
 	ctx := context.Background()
 
 	resp, err := client.Resolve(ctx, "acme", "test", "1.0.0")
@@ -81,7 +223,8 @@ func TestClientResolve_Success(t *testing.T) {
 }
 
 func TestClientResolve_InvalidParams(t *testing.T) {
-	client := NewClient("https://example.com")
+	client, err := NewClient("https://example.com")
+	require.NoError(t, err)
 	ctx := context.Background()
 
 	tests := []struct {
@@ -111,7 +254,8 @@ func TestClientResolve_NotFound(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient(server.URL)
+	client, err := NewClient(server.URL)
+	require.NoError(t, err)
 	ctx := context.Background()
 
 	resp, err := client.Resolve(ctx, "acme", "nonexistent", "1.0.0")
@@ -134,7 +278,8 @@ func TestClientDownloadManifest_Success(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient(server.URL)
+	client, err := NewClient(server.URL)
+	require.NoError(t, err)
 	ctx := context.Background()
 
 	data, err := client.DownloadManifest(ctx, "acme", "sha256:abcd1234")
@@ -155,7 +300,8 @@ func TestClientDownloadBundle_Success(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient(server.URL)
+	client, err := NewClient(server.URL)
+	require.NoError(t, err)
 	ctx := context.Background()
 
 	data, err := client.DownloadBundle(ctx, "acme", "sha256:efgh5678")
@@ -165,7 +311,8 @@ func TestClientDownloadBundle_Success(t *testing.T) {
 }
 
 func TestClientDownloadManifest_InvalidParams(t *testing.T) {
-	client := NewClient("https://example.com")
+	client, err := NewClient("https://example.com")
+	require.NoError(t, err)
 	ctx := context.Background()
 
 	tests := []struct {
@@ -196,7 +343,8 @@ func TestClientDownloadManifest_SizeLimit(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient(server.URL)
+	client, err := NewClient(server.URL)
+	require.NoError(t, err)
 	ctx := context.Background()
 
 	data, err := client.DownloadManifest(ctx, "acme", "sha256:toobig")
@@ -226,7 +374,8 @@ func TestClientLogin_Success(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient(server.URL)
+	client, err := NewClient(server.URL)
+	require.NoError(t, err)
 	ctx := context.Background()
 
 	resp, err := client.Login(ctx, "user", "pass")
@@ -238,7 +387,8 @@ func TestClientLogin_Success(t *testing.T) {
 }
 
 func TestClientLogin_InvalidParams(t *testing.T) {
-	client := NewClient("https://example.com")
+	client, err := NewClient("https://example.com")
+	require.NoError(t, err)
 	ctx := context.Background()
 
 	tests := []struct {
@@ -267,7 +417,8 @@ func TestClientLogin_Unauthorized(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient(server.URL)
+	client, err := NewClient(server.URL)
+	require.NoError(t, err)
 	ctx := context.Background()
 
 	resp, err := client.Login(ctx, "user", "wrong")
@@ -302,7 +453,8 @@ func TestClientListCatalog_Success(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient(server.URL)
+	client, err := NewClient(server.URL)
+	require.NoError(t, err)
 	ctx := context.Background()
 
 	resp, err := client.ListCatalog(ctx)
@@ -329,7 +481,8 @@ func TestClientWithAuthToken(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClientWithToken(server.URL, "token123")
+	client, err := NewClientWithToken(server.URL, "token123")
+	require.NoError(t, err)
 	ctx := context.Background()
 
 	resp, err := client.Resolve(ctx, "acme", "test", "1.0.0")
@@ -345,7 +498,8 @@ func TestClientContextCancellation(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient(server.URL)
+	client, err := NewClient(server.URL)
+	require.NoError(t, err)
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
 
@@ -374,7 +528,8 @@ func TestClientRetryLogic_Success(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient(server.URL)
+	client, err := NewClient(server.URL)
+	require.NoError(t, err)
 	ctx := context.Background()
 
 	data, err := client.DownloadBundle(ctx, "acme", "sha256:test")
@@ -394,7 +549,8 @@ func TestClientRetryLogic_ExhaustedRetries(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient(server.URL)
+	client, err := NewClient(server.URL)
+	require.NoError(t, err)
 	ctx := context.Background()
 
 	data, err := client.DownloadBundle(ctx, "acme", "sha256:test")
@@ -415,7 +571,8 @@ func TestClientRetryLogic_NoRetryOn404(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient(server.URL)
+	client, err := NewClient(server.URL)
+	require.NoError(t, err)
 	ctx := context.Background()
 
 	data, err := client.DownloadManifest(ctx, "acme", "sha256:notfound")
@@ -499,7 +656,8 @@ func TestUserAgent(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient(server.URL)
+	client, err := NewClient(server.URL)
+	require.NoError(t, err)
 	ctx := context.Background()
 
 	// Any request should have User-Agent
@@ -518,7 +676,8 @@ func TestContentTypeHeader(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient(server.URL)
+	client, err := NewClient(server.URL)
+	require.NoError(t, err)
 	ctx := context.Background()
 
 	client.Login(ctx, "user", "pass")
@@ -545,11 +704,12 @@ func TestRedirectFollowing(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient(server.URL)
+	client, err := NewClient(server.URL)
+	require.NoError(t, err)
 	ctx := context.Background()
 
 	// This should follow the redirect and succeed
-	_, err := client.Resolve(ctx, "test", "test", "1.0.0")
+	_, err = client.Resolve(ctx, "test", "test", "1.0.0")
 
 	// We expect an error because the final endpoint doesn't match expected format
 	// But the important thing is that it tried to follow the redirect
@@ -557,7 +717,8 @@ func TestRedirectFollowing(t *testing.T) {
 }
 
 func TestClientBaseURL(t *testing.T) {
-	client := NewClient("https://example.com")
+	client, err := NewClient("https://example.com")
+	require.NoError(t, err)
 	assert.Equal(t, "https://example.com", client.BaseURL())
 
 	client.SetBaseURL("https://new.example.com")
@@ -573,10 +734,11 @@ func TestErrorMessageExtraction(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient(server.URL)
+	client, err := NewClient(server.URL)
+	require.NoError(t, err)
 	ctx := context.Background()
 
-	_, err := client.Resolve(ctx, "test", "test", "1.0.0")
+	_, err = client.Resolve(ctx, "test", "test", "1.0.0")
 
 	assert.Error(t, err)
 	assert.True(t, strings.Contains(err.Error(), "invalid request format"))
@@ -589,10 +751,193 @@ func TestEmptyResponseBody(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient(server.URL)
+	client, err := NewClient(server.URL)
+	require.NoError(t, err)
 	ctx := context.Background()
 
-	_, err := client.Resolve(ctx, "test", "test", "1.0.0")
+	_, err = client.Resolve(ctx, "test", "test", "1.0.0")
 
 	assert.Error(t, err)
+}
+
+// SECURITY TESTS: Redirect validation
+
+func TestClientRejectsRedirectToPrivateIP(t *testing.T) {
+	// Server that redirects to a private IP with https (to trigger private IP check)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Redirect to private IP with https
+		http.Redirect(w, r, "https://192.168.1.1/evil", http.StatusFound)
+	}))
+	defer server.Close()
+
+	client, err := NewClient(server.URL)
+	require.NoError(t, err)
+	ctx := context.Background()
+
+	_, err = client.Resolve(ctx, "test", "test", "1.0.0")
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "redirect to private/internal network not allowed")
+}
+
+func TestClientRejectsRedirectToLocalhost(t *testing.T) {
+	// Server that redirects to localhost with https (not allowed)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "https://localhost:8080/evil", http.StatusFound)
+	}))
+	defer server.Close()
+
+	client, err := NewClient(server.URL)
+	require.NoError(t, err)
+	ctx := context.Background()
+
+	_, err = client.Resolve(ctx, "test", "test", "1.0.0")
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "redirect to localhost")
+}
+
+func TestClientRejectsFileSchemeRedirect(t *testing.T) {
+	// Server that redirects to file:// scheme
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "file:///etc/passwd", http.StatusFound)
+	}))
+	defer server.Close()
+
+	client, err := NewClient(server.URL)
+	require.NoError(t, err)
+	ctx := context.Background()
+
+	_, err = client.Resolve(ctx, "test", "test", "1.0.0")
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "redirect to unsafe scheme not allowed")
+}
+
+func TestClientRejectsRedirectToNonHTTPS(t *testing.T) {
+	// Server that redirects to http (non-localhost)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "http://example.com/evil", http.StatusFound)
+	}))
+	defer server.Close()
+
+	client, err := NewClient(server.URL)
+	require.NoError(t, err)
+	ctx := context.Background()
+
+	_, err = client.Resolve(ctx, "test", "test", "1.0.0")
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "redirect to non-https URL not allowed")
+}
+
+func TestClientRejectsTooManyRedirects(t *testing.T) {
+	redirectCount := 0
+	var serverURL string
+
+	// Server that keeps redirecting to itself
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		redirectCount++
+		if redirectCount > MaxRedirects+5 {
+			// Stop after enough redirects to test limit
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		http.Redirect(w, r, serverURL+"/redirect", http.StatusFound)
+	}))
+	defer server.Close()
+	serverURL = server.URL
+
+	client, err := NewClient(server.URL)
+	require.NoError(t, err)
+	ctx := context.Background()
+
+	_, err = client.Resolve(ctx, "test", "test", "1.0.0")
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "too many redirects")
+}
+
+func TestClientAllowsHTTPLocalhostRedirectInDev(t *testing.T) {
+	// Create a second server for the redirect target
+	targetServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		resp := ResolveResponse{
+			Package: "test/pkg",
+			Ref:     "1.0.0",
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(resp)
+	}))
+	defer targetServer.Close()
+
+	// Server that redirects to localhost (http is allowed for localhost)
+	redirectServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Redirect to localhost target
+		http.Redirect(w, r, targetServer.URL, http.StatusFound)
+	}))
+	defer redirectServer.Close()
+
+	client, err := NewClient(redirectServer.URL)
+	require.NoError(t, err)
+	ctx := context.Background()
+
+	// This should succeed because http to localhost is allowed in dev
+	resp, err := client.Resolve(ctx, "test", "pkg", "1.0.0")
+
+	require.NoError(t, err)
+	assert.NotNil(t, resp)
+}
+
+func TestIsPrivateIP(t *testing.T) {
+	tests := []struct {
+		name     string
+		host     string
+		expected bool
+	}{
+		{"private 10.x.x.x", "10.0.0.1", true},
+		{"private 172.16.x.x", "172.16.0.1", true},
+		{"private 192.168.x.x", "192.168.1.1", true},
+		{"loopback", "127.0.0.1", true},
+		{"loopback IPv6", "::1", true},
+		{"link-local", "169.254.169.254", true},
+		{"AWS metadata", "169.254.169.254", true},
+		{"multicast", "224.0.0.1", true},
+		{"reserved", "240.0.0.1", true},
+		{"public IP", "8.8.8.8", false},
+		{"public domain", "example.com", false},
+		{"localhost", "localhost", true},
+		{"with port", "192.168.1.1:8080", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := isPrivateIP(tt.host)
+			assert.Equal(t, tt.expected, result, "isPrivateIP(%s) = %v, want %v", tt.host, result, tt.expected)
+		})
+	}
+}
+
+func TestIsLocalhost(t *testing.T) {
+	tests := []struct {
+		name     string
+		host     string
+		expected bool
+	}{
+		{"localhost", "localhost", true},
+		{"127.0.0.1", "127.0.0.1", true},
+		{"IPv6 loopback", "::1", true},
+		{"IPv6 loopback bracketed", "[::1]", true},
+		{"localhost with port", "localhost:8080", true},
+		{"127.0.0.1 with port", "127.0.0.1:8080", true},
+		{"uppercase", "LOCALHOST", true},
+		{"public domain", "example.com", false},
+		{"private IP", "192.168.1.1", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := isLocalhost(tt.host)
+			assert.Equal(t, tt.expected, result, "isLocalhost(%s) = %v, want %v", tt.host, result, tt.expected)
+		})
+	}
 }

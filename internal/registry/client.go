@@ -8,8 +8,10 @@ import (
 	"io"
 	"log/slog"
 	"math"
+	"net"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 )
 
@@ -45,32 +47,151 @@ type Client struct {
 	logger     *slog.Logger
 }
 
+// isPrivateIP checks if the given host is a private IP address or resolves to one
+func isPrivateIP(host string) bool {
+	// Remove port if present
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		host = h
+	}
+
+	// Parse as IP address directly
+	ip := net.ParseIP(host)
+	if ip == nil {
+		// Try to resolve the hostname
+		ips, err := net.LookupIP(host)
+		if err != nil || len(ips) == 0 {
+			// If we can't resolve, reject to be safe
+			return false
+		}
+		ip = ips[0]
+	}
+
+	// Check for private/internal IP ranges
+	if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() {
+		return true
+	}
+
+	// Additional checks for special ranges
+	if ip4 := ip.To4(); ip4 != nil {
+		// 0.0.0.0/8 (current network)
+		if ip4[0] == 0 {
+			return true
+		}
+		// 169.254.0.0/16 (link-local, including AWS metadata)
+		if ip4[0] == 169 && ip4[1] == 254 {
+			return true
+		}
+		// 224.0.0.0/4 (multicast)
+		if ip4[0] >= 224 && ip4[0] <= 239 {
+			return true
+		}
+		// 240.0.0.0/4 (reserved)
+		if ip4[0] >= 240 {
+			return true
+		}
+	}
+
+	return false
+}
+
+// isLocalhost checks if the given host is localhost
+func isLocalhost(host string) bool {
+	// Remove port if present
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		host = h
+	}
+
+	host = strings.ToLower(strings.TrimSpace(host))
+	return host == "localhost" || host == "127.0.0.1" || host == "::1" || host == "[::1]"
+}
+
+// validateRedirect validates that a redirect destination is safe
+func validateRedirect(req *http.Request, via []*http.Request) error {
+	if len(via) >= MaxRedirects {
+		return fmt.Errorf("too many redirects (max %d)", MaxRedirects)
+	}
+
+	// SECURITY: Validate the redirect destination (req.URL is the destination we're about to be redirected to)
+	u := req.URL
+	host := u.Hostname()
+
+	// Reject file:// and other dangerous schemes first
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return fmt.Errorf("redirect to unsafe scheme not allowed: %s", u.Scheme)
+	}
+
+	// Check localhost separately (allow http localhost for dev, but not https localhost)
+	if isLocalhost(host) {
+		if u.Scheme == "https" {
+			return fmt.Errorf("redirect to localhost with https not allowed: %s", u.Redacted())
+		}
+		// http localhost is allowed (for dev/testing)
+		return nil
+	}
+
+	// Only allow https for non-localhost destinations
+	if u.Scheme != "https" {
+		return fmt.Errorf("redirect to non-https URL not allowed: %s", u.Redacted())
+	}
+
+	// Reject redirects to private IPs (but localhost was already handled above)
+	if isPrivateIP(host) {
+		return fmt.Errorf("redirect to private/internal network not allowed: %s", u.Redacted())
+	}
+
+	return nil
+}
+
 // NewClient creates a new registry client with default timeouts
-func NewClient(baseURL string) *Client {
+func NewClient(baseURL string) (*Client, error) {
 	if baseURL == "" {
 		baseURL = DefaultRegistryURL
 	}
 
+	// SECURITY: Parse and validate registry URL
+	u, err := url.Parse(baseURL)
+	if err != nil {
+		return nil, fmt.Errorf("invalid registry URL: %w", err)
+	}
+
+	host := u.Hostname()
+
+	// SECURITY: Only allow https in production
+	// Allow http only for localhost development
+	if u.Scheme != "https" && !isLocalhost(host) {
+		return nil, fmt.Errorf("registry URL must use https (got %s)", u.Scheme)
+	}
+
+	// SECURITY: Reject private IPs to prevent SSRF
+	if isPrivateIP(host) && !isLocalhost(host) {
+		return nil, fmt.Errorf("registry URL cannot be private IP: %s", host)
+	}
+
+	// SECURITY: DNS pinning to prevent DNS rebinding attacks
+	// Only if not localhost
+	if !isLocalhost(host) {
+		ips, err := net.LookupIP(host)
+		if err != nil {
+			return nil, fmt.Errorf("failed to resolve registry host: %w", err)
+		}
+
+		for _, ip := range ips {
+			if isPrivateIP(ip.String()) {
+				return nil, fmt.Errorf("registry resolves to private IP: %s", ip)
+			}
+		}
+	}
+
 	// API client for metadata operations
 	apiClient := &http.Client{
-		Timeout: DefaultAPITimeout,
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			if len(via) >= MaxRedirects {
-				return fmt.Errorf("too many redirects (max %d)", MaxRedirects)
-			}
-			return nil
-		},
+		Timeout:       DefaultAPITimeout,
+		CheckRedirect: validateRedirect,
 	}
 
 	// Download client for large file operations
 	downloadClient := &http.Client{
-		Timeout: DefaultDownloadTimeout,
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			if len(via) >= MaxRedirects {
-				return fmt.Errorf("too many redirects (max %d)", MaxRedirects)
-			}
-			return nil
-		},
+		Timeout:       DefaultDownloadTimeout,
+		CheckRedirect: validateRedirect,
 	}
 
 	logger := slog.Default()
@@ -80,14 +201,17 @@ func NewClient(baseURL string) *Client {
 		httpClient: downloadClient,
 		apiClient:  apiClient,
 		logger:     logger,
-	}
+	}, nil
 }
 
 // NewClientWithToken creates a new registry client with an auth token
-func NewClientWithToken(baseURL, token string) *Client {
-	client := NewClient(baseURL)
+func NewClientWithToken(baseURL, token string) (*Client, error) {
+	client, err := NewClient(baseURL)
+	if err != nil {
+		return nil, err
+	}
 	client.token = token
-	return client
+	return client, nil
 }
 
 // SetLogger sets the logger for the client

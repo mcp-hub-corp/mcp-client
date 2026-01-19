@@ -48,7 +48,10 @@ func runInfo(cmd *cobra.Command, args []string) error {
 	logger := createLogger(cfg.LogLevel)
 
 	// Create registry client
-	registryClient := registry.NewClient(cfg.RegistryURL)
+	registryClient, err := registry.NewClient(cfg.RegistryURL)
+	if err != nil {
+		return fmt.Errorf("failed to create registry client: %w", err)
+	}
 	registryClient.SetLogger(logger)
 
 	// Create cache store

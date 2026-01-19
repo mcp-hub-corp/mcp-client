@@ -31,13 +31,29 @@ Secure CLI launcher for MCP (Model Context Protocol) servers. Download, validate
 
 | Feature | Linux | macOS | Windows |
 |---------|-------|-------|---------|
-| Resource Limits | ✅ | ⚠️ | ✅ |
+| Resource Limits | ✅ | ❌ | ❌ |
 | Network Isolation | ✅ | ❌ | ❌ |
-| Filesystem Isolation | ✅ | ⚠️ | ⚠️ |
-| Subprocess Control | ✅ | ⚠️ | ✅ |
+| Filesystem Isolation | ✅ | ❌ | ❌ |
+| Subprocess Control | ✅ | ⚠️ | ❌ |
 | Audit Logging | ✅ | ✅ | ✅ |
+| **Production Ready** | ✅ | ❌ | ❌ |
 
-⚠️ = Limited capabilities; ❌ = Not available
+✅ = Fully supported; ⚠️ = Limited capabilities; ❌ = Not available
+
+### ⚠️ CRITICAL: macOS and Windows Sandbox Limitations
+
+**macOS and Windows are NOT safe for production use** due to known sandbox bypass vulnerabilities:
+
+- **macOS (CLIENT-CRIT-003):** Resource limits are NOT enforced on child processes
+- **Windows (CLIENT-CRIT-004, CLIENT-CRIT-005):** Job Object limits are NOT applied
+
+**Production recommendations:**
+- ✅ Use Linux with cgroups
+- ✅ Use Docker containers on any platform
+- ✅ Use Kubernetes with resource limits
+- ❌ Do NOT run untrusted MCPs on bare metal macOS/Windows
+
+**See [docs/SECURITY_SANDBOX_LIMITATIONS.md](docs/SECURITY_SANDBOX_LIMITATIONS.md) for details and mitigation strategies.**
 
 ## Installation
 

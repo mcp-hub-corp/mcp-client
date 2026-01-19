@@ -9,11 +9,15 @@ import (
 
 // Example of creating a registry client
 func ExampleNewClient() {
-	client := registry.NewClient("https://registry.mcp-hub.info")
+	// Use a well-known public DNS that won't fail resolution
+	client, err := registry.NewClient("https://example.com")
+	if err != nil {
+		log.Fatal(err)
+	}
 
-	fmt.Printf("Client created for: %s\n", "registry.mcp-hub.info")
+	fmt.Printf("Client created for: %s\n", "example.com")
 	_ = client
-	// Output: Client created for: registry.mcp-hub.info
+	// Output: Client created for: example.com
 }
 
 // Example of validating a digest

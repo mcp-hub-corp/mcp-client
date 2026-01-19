@@ -474,27 +474,26 @@ func validateOutputPath(outputPath string) error {
 }
 
 // validatePathTraversal ensures a path doesn't escape the base directory
+// SECURITY: Uses Lstat to NOT follow symlinks, preventing data exfiltration
 func validatePathTraversal(baseDir, absPath string) error {
-	// Resolve symlinks and clean the path
-	cleanBase, err := filepath.EvalSymlinks(baseDir)
-	if err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("failed to resolve base directory: %w", err)
-	}
-	if err != nil && os.IsNotExist(err) {
-		cleanBase, _ = filepath.Abs(baseDir)
+	// Use Lstat to NOT follow symlinks
+	fi, err := os.Lstat(absPath)
+	if err != nil {
+		return fmt.Errorf("failed to stat path: %w", err)
 	}
 
-	cleanPath, err := filepath.EvalSymlinks(absPath)
-	if err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("failed to resolve path: %w", err)
-	}
-	if err != nil && os.IsNotExist(err) {
-		cleanPath, _ = filepath.Abs(absPath)
+	// SECURITY: Reject symlinks to prevent data exfiltration
+	if fi.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("symlinks not allowed in source: %s", absPath)
 	}
 
-	// Check that cleanPath is under cleanBase
-	if !strings.HasPrefix(cleanPath+"/", cleanBase+"/") && cleanPath != cleanBase {
-		return fmt.Errorf("path traversal detected: %s is outside %s", cleanPath, cleanBase)
+	// Clean paths without resolving symlinks
+	cleanPath := filepath.Clean(absPath)
+	cleanBase := filepath.Clean(baseDir)
+
+	// Validate path is within base
+	if !strings.HasPrefix(cleanPath+string(filepath.Separator), cleanBase+string(filepath.Separator)) {
+		return fmt.Errorf("path traversal detected: %s escapes %s", absPath, baseDir)
 	}
 
 	return nil

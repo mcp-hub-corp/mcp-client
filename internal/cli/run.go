@@ -68,7 +68,10 @@ func runMCPServer(cmd *cobra.Command, args []string) error {
 	}()
 
 	// Create registry client
-	registryClient := registry.NewClient(cfg.RegistryURL)
+	registryClient, err := registry.NewClient(cfg.RegistryURL)
+	if err != nil {
+		return fmt.Errorf("failed to create registry client: %w", err)
+	}
 	registryClient.SetLogger(logger)
 
 	// Create cache store
@@ -423,6 +426,13 @@ func extractBundle(data []byte, destDir string) error {
 		}
 
 		switch header.Typeflag {
+		case tar.TypeSymlink, tar.TypeLink:
+			// SECURITY: Reject symlinks to prevent symlink attacks
+			// Symlinks could point outside the bundle directory and allow
+			// arbitrary file read/write attacks
+			return fmt.Errorf("symlinks and hardlinks not allowed in bundle: %s -> %s",
+				header.Name, header.Linkname)
+
 		case tar.TypeDir:
 			// Use restrictive permissions for directories
 			if err := os.MkdirAll(targetPath, 0o750); err != nil {
@@ -466,6 +476,11 @@ func extractBundle(data []byte, destDir string) error {
 			if err := file.Close(); err != nil {
 				return fmt.Errorf("failed to close file: %w", err)
 			}
+
+		default:
+			// SECURITY: Reject unknown tar types
+			return fmt.Errorf("unsupported tar type %c for file: %s",
+				header.Typeflag, header.Name)
 		}
 	}
 
