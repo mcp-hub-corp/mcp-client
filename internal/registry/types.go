@@ -4,6 +4,7 @@ package registry
 type ResolveResponse struct {
 	Package  string          `json:"package"`
 	Ref      string          `json:"ref"`
+	Origin   string          `json:"origin"`
 	Resolved ResolvedVersion `json:"resolved"`
 }
 

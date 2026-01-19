@@ -99,6 +99,19 @@ func runMCPServer(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to resolve package: %w", err)
 	}
 
+	// Enforce origin policy
+	origin := resolveResp.Origin
+	if origin == "" {
+		origin = "community" // Default origin if not specified
+	}
+	originPolicy := policy.NewOriginPolicy(cfg.Policy.AllowedOrigins)
+	if originPolicyErr := originPolicy.Validate(origin); originPolicyErr != nil {
+		if auditLogger != nil {
+			_ = auditLogger.LogError(fmt.Sprintf("%s/%s", org, name), version, fmt.Sprintf("origin policy violation: %v", originPolicyErr)) //nolint:errcheck // audit logging
+		}
+		return fmt.Errorf("origin policy violation: %w", originPolicyErr)
+	}
+
 	manifestDigest := resolveResp.Resolved.Manifest.Digest
 	bundleDigest := resolveResp.Resolved.Bundle.Digest
 	gitSHA := resolveResp.Resolved.GitSHA
@@ -106,6 +119,7 @@ func runMCPServer(cmd *cobra.Command, args []string) error {
 
 	logger.Info("package resolved",
 		slog.String("version", resolvedVersion),
+		slog.String("origin", origin),
 		slog.String("git_sha", gitSHA),
 		slog.String("manifest_digest", manifestDigest),
 		slog.String("bundle_digest", bundleDigest),
