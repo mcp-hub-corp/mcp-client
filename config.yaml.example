@@ -1,0 +1,44 @@
+# Example configuration for mcp-client
+# Place this file at ~/.mcp/config.yaml
+
+# Registry URL
+registry_url: "https://registry.mcp-hub.info"
+
+# Cache directory for downloaded artifacts
+cache_dir: "~/.mcp/cache"
+
+# Default timeout for MCP execution
+timeout: 5m
+
+# Resource limits for MCP execution
+max_cpu: 1000        # millicores (1000 = 1 CPU core)
+max_memory: "512M"   # Memory limit (e.g., "512M", "1G")
+max_pids: 10         # Maximum number of processes
+max_fds: 100         # Maximum number of file descriptors
+
+# Logging
+log_level: "info"    # Options: debug, info, warn, error
+
+# Audit logging
+audit_enabled: true
+audit_log_file: "~/.mcp/audit.log"
+
+# Default limits (ALWAYS applied, cannot be disabled)
+# These are mandatory safety defaults
+default_max_cpu: 1000
+default_max_memory: "512M"
+default_max_pids: 32
+default_max_fds: 256
+default_timeout: "5m"
+
+# Policy configuration
+policy:
+  # Allowed origins for MCP packages
+  # Empty list = allow all origins
+  # Available origins: official, verified, community
+  allowed_origins: []
+  # Example configurations:
+  # - Official only:     ["official"]
+  # - Official & Verified: ["official", "verified"]
+  # - All origins:       []
+  # - Community only:    ["community"]

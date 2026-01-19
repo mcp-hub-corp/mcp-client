@@ -28,6 +28,14 @@ type Config struct {
 	DefaultMaxPIDs   int    `mapstructure:"default_max_pids"`   // default 32
 	DefaultMaxFDs    int    `mapstructure:"default_max_fds"`    // default 256
 	DefaultTimeout   string `mapstructure:"default_timeout"`    // default "5m"
+
+	// Policy configuration
+	Policy PolicyConfig `mapstructure:"policy"`
+}
+
+// PolicyConfig holds policy enforcement settings
+type PolicyConfig struct {
+	AllowedOrigins []string `mapstructure:"allowed_origins"` // Empty = allow all origins
 }
 
 // LoadConfig loads configuration from file and environment variables
