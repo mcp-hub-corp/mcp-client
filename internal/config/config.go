@@ -35,7 +35,10 @@ type Config struct {
 
 // PolicyConfig holds policy enforcement settings
 type PolicyConfig struct {
-	AllowedOrigins []string `mapstructure:"allowed_origins"` // Empty = allow all origins
+	AllowedOrigins   []string `mapstructure:"allowed_origins"`   // Empty = allow all origins
+	MinCertLevel     int      `mapstructure:"min_cert_level"`     // 0-3, default 0 (no minimum)
+	CertLevelMode    string   `mapstructure:"cert_level_mode"`    // strict, warn, disabled
+	Environments     map[string]map[string]interface{} `mapstructure:"environments"` // Environment-specific overrides
 }
 
 // LoadConfig loads configuration from file and environment variables
@@ -59,6 +62,10 @@ func LoadConfig() (*Config, error) {
 	viper.SetDefault("default_max_pids", 32)
 	viper.SetDefault("default_max_fds", 256)
 	viper.SetDefault("default_timeout", "5m")
+
+	// Policy defaults
+	viper.SetDefault("policy.min_cert_level", 0)      // No minimum by default
+	viper.SetDefault("policy.cert_level_mode", "disabled") // No enforcement by default
 
 	// Set config file location
 	configDir := filepath.Join(getHomeDir(), ".mcp")

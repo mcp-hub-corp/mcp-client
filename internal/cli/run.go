@@ -112,6 +112,15 @@ func runMCPServer(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("origin policy violation: %w", originPolicyErr)
 	}
 
+	// Enforce certification level policy
+	certLevel := resolveResp.Resolved.CertificationLevel
+	if certLevelErr := pol.CertLevelPolicy.ValidateWithLogging(certLevel, fmt.Sprintf("%s/%s", org, name)); certLevelErr != nil {
+		if auditLogger != nil {
+			_ = auditLogger.LogError(fmt.Sprintf("%s/%s", org, name), version, fmt.Sprintf("certification level policy violation: %v", certLevelErr)) //nolint:errcheck // audit logging
+		}
+		return fmt.Errorf("certification level policy violation: %w", certLevelErr)
+	}
+
 	manifestDigest := resolveResp.Resolved.Manifest.Digest
 	bundleDigest := resolveResp.Resolved.Bundle.Digest
 	gitSHA := resolveResp.Resolved.GitSHA

@@ -1,0 +1,110 @@
+# Example MCP Client configuration with certification level policy enforcement
+# Location: ~/.mcp/config.yaml
+
+registry:
+  url: https://registry.mcp-hub.info
+  timeout: 30s
+
+cache:
+  dir: ~/.mcp/cache
+  max_size: 10GB
+  ttl: 720h  # 30 days
+
+executor:
+  default_timeout: 5m
+  max_cpu: 1000      # millicores (1 core)
+  max_memory: 512M
+  max_pids: 10
+  max_fds: 100
+
+# Security policy: origin and certification level enforcement
+policy:
+  # Allowed origins (empty = allow all)
+  # Options: "official", "verified", "community"
+  allowed_origins: []
+
+  # Minimum certification level (0-3)
+  # Levels:
+  #   0 = Integrity Verified (digest validation, schema validation)
+  #   1 = Static Verified (Trivy + Semgrep basic, SBOM)
+  #   2 = Security Certified (Advanced analysis, evidences, MSSS)
+  #   3 = Runtime Certified (Dynamic analysis in sandbox)
+  min_cert_level: 0
+
+  # Enforcement mode for certification level policy
+  # Options: "strict", "warn", "disabled"
+  #   strict:    Block execution if cert_level < min_cert_level
+  #   warn:      Log warning but allow execution
+  #   disabled:  No enforcement (allow everything)
+  cert_level_mode: disabled
+
+  # Environment-specific overrides
+  environments:
+    # Development environment: allow lower certification levels
+    dev:
+      min_cert_level: 0
+      cert_level_mode: disabled
+
+    # Production environment: strict enforcement
+    prod:
+      min_cert_level: 2
+      cert_level_mode: strict
+
+    # Staging environment: warn mode
+    staging:
+      min_cert_level: 1
+      cert_level_mode: warn
+
+audit:
+  enabled: true
+  log_file: ~/.mcp/audit.log
+  format: json
+
+log:
+  level: info
+  format: text
+
+---
+
+# Example scenarios:
+
+# 1. Development mode - no enforcement (default)
+# - min_cert_level: 0
+# - cert_level_mode: disabled
+# Allows running any MCP regardless of certification level
+
+# 2. Production strict - only certified MCPs
+# - min_cert_level: 2
+# - cert_level_mode: strict
+# - Blocks execution if cert_level < 2 (Security Certified or higher)
+# - Errors immediately with clear message
+
+# 3. Enterprise strict - only official or verified + certified
+# - allowed_origins: ["official", "verified"]
+# - min_cert_level: 2
+# - cert_level_mode: strict
+# - Blocks if origin not in list OR cert_level < 2
+
+# 4. Gradual rollout - warn mode
+# - min_cert_level: 1
+# - cert_level_mode: warn
+# - Logs warning but allows execution
+# - Helps identify which MCPs need certification before enabling strict mode
+
+# 5. Production strict with origin restriction
+# - allowed_origins: ["official"]
+# - min_cert_level: 3
+# - cert_level_mode: strict
+# - Only allows official MCPs with runtime certification (highest level)
+
+# Usage examples with different environments:
+
+# Load default config:
+# $ mcp run acme/tool@latest
+
+# Override cert_level_mode via environment variable:
+# $ MCP_POLICY_CERT_LEVEL_MODE=strict mcp run acme/tool@latest
+
+# Use environment-specific config (future):
+# $ MCP_ENV=prod mcp run acme/tool@latest
+# This would apply the prod settings from environments section
