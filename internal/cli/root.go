@@ -2,7 +2,6 @@ package cli
 
 import (
 	"fmt"
-	"os"
 
 	"github.com/security-mcp/mcp-client/internal/config"
 	"github.com/spf13/cobra"
@@ -83,11 +82,11 @@ func init() {
 var loginCmd = &cobra.Command{
 	Use:   "login",
 	Short: "Authenticate with the MCP registry",
-	Long:  `Authenticate with the MCP registry using a token.`,
-	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Fprintln(os.Stderr, "not implemented yet")
-		os.Exit(1)
-	},
+	Long: `Authenticate with the MCP registry using username/password or a token.
+
+Examples:
+  mcp login                                 # Interactive login with username/password
+  mcp login --token eyJ...                  # Login with a pre-existing token`,
 }
 
 // logoutCmd handles logout from the registry
@@ -95,10 +94,6 @@ var logoutCmd = &cobra.Command{
 	Use:   "logout",
 	Short: "Logout from the MCP registry",
 	Long:  `Remove authentication credentials for the MCP registry.`,
-	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Fprintln(os.Stderr, "not implemented yet")
-		os.Exit(1)
-	},
 }
 
 // pullCmd pre-downloads an MCP package

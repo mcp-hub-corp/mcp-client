@@ -65,6 +65,18 @@ func (ts *TokenStorage) Load() (*Token, error) {
 	return &token, nil
 }
 
+// Delete removes the stored token from disk
+func (ts *TokenStorage) Delete() error {
+	tokenPath := filepath.Join(ts.dir, "auth.json")
+	if err := os.Remove(tokenPath); err != nil {
+		if os.IsNotExist(err) {
+			return nil // Already deleted, not an error
+		}
+		return err
+	}
+	return nil
+}
+
 // IsExpired checks if the token has expired
 func (t *Token) IsExpired() bool {
 	return time.Now().After(t.ExpiresAt)
