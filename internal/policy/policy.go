@@ -20,6 +20,7 @@ type Policy struct {
 	AllowSubprocess  bool          // allow subprocess creation
 	NetworkAllowlist []string      // allowed domains/IPs
 	EnvAllowlist     []string      // allowed env vars (if empty, all allowed)
+	CertLevelPolicy  *CertLevelPolicy // certification level policy
 	logger           *slog.Logger
 }
 
@@ -43,6 +44,7 @@ func NewPolicy(cfg *config.Config) *Policy {
 		MaxFDs:          cfg.MaxFDs,
 		DefaultTimeout:  cfg.Timeout,
 		AllowSubprocess: false, // default deny
+		CertLevelPolicy: NewCertLevelPolicyWithLogger(cfg.Policy.MinCertLevel, cfg.Policy.CertLevelMode, logger),
 		logger:          logger,
 	}
 }
@@ -56,6 +58,7 @@ func NewPolicyWithLogger(cfg *config.Config, logger *slog.Logger) *Policy {
 		MaxFDs:          cfg.MaxFDs,
 		DefaultTimeout:  cfg.Timeout,
 		AllowSubprocess: false, // default deny
+		CertLevelPolicy: NewCertLevelPolicyWithLogger(cfg.Policy.MinCertLevel, cfg.Policy.CertLevelMode, logger),
 		logger:          logger,
 	}
 }

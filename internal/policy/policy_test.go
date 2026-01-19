@@ -271,3 +271,60 @@ func TestIsMoreRestrictiveMemory(t *testing.T) {
 		})
 	}
 }
+
+func TestPolicyIntegration_CertLevelInheritedFromConfig(t *testing.T) {
+	cfg := &config.Config{
+		MaxCPU:    1000,
+		MaxMemory: "512M",
+		MaxPIDs:   10,
+		MaxFDs:    100,
+		Timeout:   5 * time.Minute,
+		Policy: config.PolicyConfig{
+			MinCertLevel:  2,
+			CertLevelMode: StrictMode,
+		},
+	}
+	p := NewPolicy(cfg)
+
+	assert.NotNil(t, p.CertLevelPolicy)
+	assert.Equal(t, 2, p.CertLevelPolicy.GetMinCertLevel())
+	assert.Equal(t, StrictMode, p.CertLevelPolicy.GetEnforceMode())
+}
+
+func TestPolicyIntegration_CertLevelWarnMode(t *testing.T) {
+	cfg := &config.Config{
+		MaxCPU:    1000,
+		MaxMemory: "512M",
+		MaxPIDs:   10,
+		MaxFDs:    100,
+		Timeout:   5 * time.Minute,
+		Policy: config.PolicyConfig{
+			MinCertLevel:  1,
+			CertLevelMode: WarnMode,
+		},
+	}
+	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
+	p := NewPolicyWithLogger(cfg, logger)
+
+	// Should not error in warn mode
+	assert.NoError(t, p.CertLevelPolicy.Validate(0))
+}
+
+func TestPolicyIntegration_CertLevelDisabledMode(t *testing.T) {
+	cfg := &config.Config{
+		MaxCPU:    1000,
+		MaxMemory: "512M",
+		MaxPIDs:   10,
+		MaxFDs:    100,
+		Timeout:   5 * time.Minute,
+		Policy: config.PolicyConfig{
+			MinCertLevel:  2,
+			CertLevelMode: DisabledMode,
+		},
+	}
+	p := NewPolicy(cfg)
+
+	// Should not error in disabled mode
+	assert.NoError(t, p.CertLevelPolicy.Validate(0))
+	assert.NoError(t, p.CertLevelPolicy.Validate(1))
+}
