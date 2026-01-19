@@ -105,7 +105,7 @@ func (p *CertLevelPolicy) Validate(certLevel int) error {
 	}
 
 	// Strict mode: block execution
-	return fmt.Errorf(message)
+	return fmt.Errorf("%s", message) // nolint:goerr113 // dynamic message based on cert levels
 }
 
 // ValidateWithLogging validates and logs the decision
