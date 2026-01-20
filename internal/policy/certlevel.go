@@ -24,13 +24,28 @@ const (
 	DisabledMode = "disabled"
 )
 
-// CertLevelNames maps certification levels to human-readable names
-var CertLevelNames = map[int]string{
+// certLevelNames maps certification levels to human-readable names.
+// This is the internal source of truth for cert level naming.
+// Use GetCertLevelName() to access these values.
+var certLevelNames = map[int]string{
 	0: "Integrity Verified",
 	1: "Static Verified",
 	2: "Security Certified",
 	3: "Runtime Certified",
 }
+
+// GetCertLevelName returns the human-readable name for a certification level.
+// Returns "Unknown" if the level is not recognized.
+func GetCertLevelName(level int) string {
+	if name, ok := certLevelNames[level]; ok {
+		return name
+	}
+	return "Unknown"
+}
+
+// CertLevelNames is deprecated. Use GetCertLevelName() instead.
+// Deprecated: This map is exposed for backward compatibility only.
+var CertLevelNames = certLevelNames
 
 // NewCertLevelPolicy creates a new certification level policy
 func NewCertLevelPolicy(minCertLevel int, enforceMode string) *CertLevelPolicy {
@@ -87,8 +102,8 @@ func (p *CertLevelPolicy) Validate(certLevel int) error {
 	}
 
 	// Cert level is below minimum
-	minName := CertLevelNames[p.MinCertLevel]
-	currentName := CertLevelNames[certLevel]
+	minName := GetCertLevelName(p.MinCertLevel)
+	currentName := GetCertLevelName(certLevel)
 
 	message := fmt.Sprintf(
 		"certification level %d (%s) is below minimum required level %d (%s)",
@@ -111,8 +126,8 @@ func (p *CertLevelPolicy) Validate(certLevel int) error {
 // ValidateWithLogging validates and logs the decision
 func (p *CertLevelPolicy) ValidateWithLogging(certLevel int, packageID string) error {
 	// Log the validation attempt
-	minName := CertLevelNames[p.MinCertLevel]
-	currentName := CertLevelNames[certLevel]
+	minName := GetCertLevelName(p.MinCertLevel)
+	currentName := GetCertLevelName(certLevel)
 
 	p.logger.Debug("validating certification level",
 		slog.String("package", packageID),
