@@ -5,11 +5,21 @@ import (
 	"testing"
 	"time"
 
+	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func TestLoadConfig_Defaults(t *testing.T) {
+	// Reset Viper global state so config file on disk does not interfere
+	viper.Reset()
+
+	// Use a temp dir as HOME so no real ~/.mcp/config.yaml is read
+	tempHome := t.TempDir()
+	origHome := os.Getenv("HOME")
+	os.Setenv("HOME", tempHome)
+	defer os.Setenv("HOME", origHome)
+
 	// Clear any env vars
 	os.Unsetenv("MCP_REGISTRY_URL")
 	os.Unsetenv("MCP_CACHE_DIR")
@@ -24,8 +34,8 @@ func TestLoadConfig_Defaults(t *testing.T) {
 	assert.Equal(t, 5*time.Minute, cfg.Timeout)
 	assert.Equal(t, 1000, cfg.MaxCPU)
 	assert.Equal(t, "512M", cfg.MaxMemory)
-	assert.Equal(t, 10, cfg.MaxPIDs)
-	assert.Equal(t, 100, cfg.MaxFDs)
+	assert.Equal(t, 256, cfg.MaxPIDs)
+	assert.Equal(t, 1024, cfg.MaxFDs)
 	assert.Equal(t, "info", cfg.LogLevel)
 	assert.True(t, cfg.AuditEnabled)
 	assert.Contains(t, cfg.AuditLogFile, ".mcp/audit.log")

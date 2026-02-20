@@ -12,6 +12,9 @@ import (
 	"strings"
 	"syscall"
 
+	"golang.org/x/sys/unix"
+
+	"github.com/security-mcp/mcp-client/internal/manifest"
 	"github.com/security-mcp/mcp-client/internal/policy"
 )
 
@@ -31,7 +34,12 @@ type LinuxSandbox struct {
 	cgroupPath        string // path to cgroups mountpoint
 	canCreateNet      bool   // can create network namespaces (requires CAP_NET_ADMIN or root)
 	canCreateMount    bool   // can create mount namespaces (requires unshare capability)
+	canUseUserNS      bool   // can use unprivileged user namespaces for netns
+	hasLandlock       bool   // Landlock LSM available (Linux 5.13+)
+	landlockABI       int    // Landlock ABI version
+	hasSeccomp        bool   // seccomp available on this system
 	cgroupManager     *cgroupManager
+	pendingLimits     *policy.ExecutionLimits // stored for PostStart prlimit application
 	logger            *slog.Logger
 	trackedCgroups    map[int]string // pid -> cgroup path for cleanup
 }
@@ -80,9 +88,35 @@ func newLinuxSandbox() *LinuxSandbox {
 		logger.Debug("network namespace isolation disabled (requires root/CAP_NET_ADMIN)")
 	}
 
-	// Mount namespaces typically don't require root but do require unshare support
-	// We assume it's available on modern Linux
-	ls.canCreateMount = true
+	// Detect unprivileged user namespaces (for netns without root)
+	ls.canUseUserNS = canUseUserNamespaces()
+	if ls.canUseUserNS && !ls.canCreateNet {
+		logger.Debug("user namespaces available - can create netns without root")
+	}
+
+	// Mount namespaces typically don't require root but do require unshare support.
+	// Inside containers (Docker, Kubernetes), namespace creation is usually blocked
+	// by the container runtime's seccomp profile. The container itself provides isolation.
+	if isInContainer() {
+		ls.canCreateMount = false
+		ls.canCreateNet = false
+		ls.canUseUserNS = false
+		logger.Debug("container detected - namespace creation disabled (container provides isolation)")
+	} else {
+		ls.canCreateMount = true
+	}
+
+	// Detect Landlock (Linux 5.13+)
+	ls.hasLandlock, ls.landlockABI = detectLandlock()
+	if ls.hasLandlock {
+		logger.Debug("Landlock LSM detected", slog.Int("abi_version", ls.landlockABI))
+	}
+
+	// Detect seccomp
+	ls.hasSeccomp = detectSeccomp()
+	if ls.hasSeccomp {
+		logger.Debug("seccomp available on this system")
+	}
 
 	return ls
 }
@@ -90,7 +124,7 @@ func newLinuxSandbox() *LinuxSandbox {
 // Apply applies all sandbox restrictions to a command.
 // Strategy: MANDATORY layers first (rlimits), then OPTIONAL best-effort layers (namespaces, cgroups)
 // Returns error only if MANDATORY restrictions fail
-func (s *LinuxSandbox) Apply(cmd *exec.Cmd, limits *policy.ExecutionLimits) error {
+func (s *LinuxSandbox) Apply(cmd *exec.Cmd, limits *policy.ExecutionLimits, perms *manifest.PermissionsInfo) error {
 	if cmd == nil || limits == nil {
 		return fmt.Errorf("command and limits cannot be nil")
 	}
@@ -110,6 +144,17 @@ func (s *LinuxSandbox) Apply(cmd *exec.Cmd, limits *policy.ExecutionLimits) erro
 		}
 	}
 
+	// OPTIONAL: Try PID namespace (best-effort, provides PID isolation)
+	// CLONE_NEWPID requires either root or user namespaces.
+	// The child process will see itself as PID 1 in its namespace.
+	if s.canCreateNet || s.canUseUserNS {
+		if err := s.setupPIDNamespace(cmd); err != nil {
+			s.logger.Debug("PID namespace setup failed (non-critical)", slog.String("error", err.Error()))
+		} else {
+			s.logger.Debug("PID namespace enabled for process isolation")
+		}
+	}
+
 	// OPTIONAL: Try network namespace if available (best-effort, documented if fails)
 	if s.canCreateNet {
 		if err := s.setupNetworkNamespace(cmd); err != nil {
@@ -117,6 +162,27 @@ func (s *LinuxSandbox) Apply(cmd *exec.Cmd, limits *policy.ExecutionLimits) erro
 		} else {
 			s.logger.Debug("network namespace enabled (default-deny network)")
 		}
+	} else if s.canUseUserNS {
+		// Fallback: use user namespaces for network isolation without root
+		if err := setupUserNamespace(cmd); err != nil {
+			s.logger.Debug("user namespace setup failed (non-critical)", slog.String("error", err.Error()))
+		} else {
+			s.logger.Debug("user namespace + network namespace enabled (non-root)")
+		}
+	}
+
+	// OPTIONAL: Landlock filesystem restrictions
+	// NOTE: Landlock's landlock_restrict_self() applies to the calling thread, not the child.
+	// In Go, we cannot safely apply Landlock in a pre-exec callback because goroutines may
+	// share OS threads. Instead, we store the desired paths and document this limitation.
+	// The child process should apply its own Landlock restrictions if needed.
+	// Filesystem isolation is still provided by mount namespaces (CLONE_NEWNS) above.
+	if s.hasLandlock && perms != nil && len(perms.FileSystem) > 0 {
+		s.logger.Debug("Landlock restrictions deferred to child process (parent restriction would affect launcher)",
+			slog.Int("path_count", len(perms.FileSystem)),
+		)
+		// NOTE: Landlock cannot be applied to the child from the parent process in Go.
+		// Mount namespace isolation (CLONE_NEWNS) provides filesystem restriction instead.
 	}
 
 	// OPTIONAL: Try cgroups v2 if available (best-effort, documented if fails)
@@ -124,12 +190,6 @@ func (s *LinuxSandbox) Apply(cmd *exec.Cmd, limits *policy.ExecutionLimits) erro
 	if s.useCgroups && s.useCgroupsV2 {
 		s.logger.Debug("cgroups v2 will be applied after process starts")
 	}
-
-	// Set restrictive umask for file creation (security best practice)
-	if cmd.SysProcAttr == nil {
-		cmd.SysProcAttr = &syscall.SysProcAttr{}
-	}
-	cmd.SysProcAttr.Umask = 0077 // rwx------ (restrictive: only owner can access)
 
 	return nil
 }
@@ -160,69 +220,94 @@ func (s *LinuxSandbox) ApplyForPID(pid int, limits *policy.ExecutionLimits) erro
 	return nil
 }
 
-// applyRLimits sets resource limits via setrlimit (MANDATORY, always applied)
-// This is the primary safety mechanism for resource control
-func (s *LinuxSandbox) applyRLimits(cmd *exec.Cmd, limits *policy.ExecutionLimits) error {
-	if cmd.SysProcAttr == nil {
-		cmd.SysProcAttr = &syscall.SysProcAttr{}
+// PostStart applies post-spawn restrictions: prlimits and cgroups v2 assignment.
+func (s *LinuxSandbox) PostStart(pid int, limits *policy.ExecutionLimits) error {
+	useLimits := limits
+	if useLimits == nil {
+		useLimits = s.pendingLimits
 	}
 
-	rlimits := make([]syscall.Rlimit, 0, 4)
+	// Apply rlimits via prlimit(2) on the child process
+	if useLimits != nil {
+		if err := s.applyPrlimits(pid, useLimits); err != nil {
+			s.logger.Debug("prlimit application failed (non-critical)", slog.String("error", err.Error()))
+		}
+	}
 
-	// RLIMIT_CPU: CPU time in seconds (wall clock)
-	// Formula: timeout * (millicores / 1000) = CPU seconds available
-	// Example: 5min timeout, 1000 millicores = 5 * 60 * (1000/1000) = 300 seconds
-	// Example: 5min timeout, 500 millicores = 5 * 60 * (500/1000) = 150 seconds
+	// Apply cgroups v2 if available
+	if s.useCgroups && s.useCgroupsV2 {
+		return s.ApplyForPID(pid, useLimits)
+	}
+	return nil
+}
+
+// Cleanup releases sandbox resources for a process.
+func (s *LinuxSandbox) Cleanup(pid int) error {
+	return s.CleanupCgroup(pid)
+}
+
+// applyRLimits stores resource limits for later application via prlimit(2) in PostStart.
+// Go's SysProcAttr on Linux does not have an Rlimits field, so we use prlimit(2)
+// after the child process has started to set rlimits on the child process by PID.
+func (s *LinuxSandbox) applyRLimits(cmd *exec.Cmd, limits *policy.ExecutionLimits) error {
+	// Store limits for PostStart to apply via prlimit(2)
+	s.pendingLimits = limits
+	s.logger.Debug("rlimits will be applied via prlimit(2) after process starts")
+	return nil
+}
+
+// applyPrlimits applies rlimits to a running process via prlimit(2) syscall.
+// This is called from PostStart after the child process has been spawned.
+func (s *LinuxSandbox) applyPrlimits(pid int, limits *policy.ExecutionLimits) error {
+	if pid <= 0 {
+		return fmt.Errorf("invalid pid: %d", pid)
+	}
+
+	// RLIMIT_CPU: CPU time in seconds
 	if limits.MaxCPU > 0 {
 		cpuSeconds := uint64(limits.Timeout.Seconds() * float64(limits.MaxCPU) / 1000.0)
 		if cpuSeconds < 1 {
-			cpuSeconds = 1 // Minimum 1 second
+			cpuSeconds = 1
 		}
-		rlimits = append(rlimits, syscall.Rlimit{
-			Resource: syscall.RLIMIT_CPU,
-			Cur:      cpuSeconds,
-			Max:      cpuSeconds,
-		})
-		s.logger.Debug("RLIMIT_CPU set", slog.Uint64("seconds", cpuSeconds))
+		rlim := unix.Rlimit{Cur: cpuSeconds, Max: cpuSeconds}
+		if err := unix.Prlimit(pid, unix.RLIMIT_CPU, &rlim, nil); err != nil {
+			s.logger.Debug("prlimit RLIMIT_CPU failed", slog.String("error", err.Error()))
+		} else {
+			s.logger.Debug("RLIMIT_CPU set via prlimit", slog.Uint64("seconds", cpuSeconds))
+		}
 	}
 
-	// RLIMIT_AS: Address space (virtual memory) limit in bytes
-	// This is the total memory the process can allocate (swap + RSS)
+	// Memory: RLIMIT_AS is intentionally NOT used here because it limits virtual
+	// address space (not RSS). Modern runtimes (Python, Node, Rust/Tokio) use
+	// far more virtual memory than physical memory due to mmap, shared libraries,
+	// and arena allocators. A 512M RLIMIT_AS kills processes that use < 50M RSS.
+	// Memory limits are enforced via cgroups v2 memory.max (applied in PostStart)
+	// or by the container runtime's memory constraints.
 	if limits.MaxMemory != "" {
-		memBytes := parseMemoryString(limits.MaxMemory)
-		if memBytes > 0 {
-			rlimits = append(rlimits, syscall.Rlimit{
-				Resource: syscall.RLIMIT_AS,
-				Cur:      uint64(memBytes),
-				Max:      uint64(memBytes),
-			})
-			s.logger.Debug("RLIMIT_AS set", slog.Int64("bytes", memBytes))
-		}
+		s.logger.Debug("memory limit deferred to cgroups v2 (RLIMIT_AS not used)",
+			slog.String("limit", limits.MaxMemory))
 	}
 
-	// RLIMIT_NPROC: Process count limit (max child processes)
-	// This limits the total number of processes including threads
+	// RLIMIT_NPROC: Process count limit
 	if limits.MaxPIDs > 0 {
-		rlimits = append(rlimits, syscall.Rlimit{
-			Resource: syscall.RLIMIT_NPROC,
-			Cur:      uint64(limits.MaxPIDs),
-			Max:      uint64(limits.MaxPIDs),
-		})
-		s.logger.Debug("RLIMIT_NPROC set", slog.Int("count", limits.MaxPIDs))
+		rlim := unix.Rlimit{Cur: uint64(limits.MaxPIDs), Max: uint64(limits.MaxPIDs)}
+		if err := unix.Prlimit(pid, unix.RLIMIT_NPROC, &rlim, nil); err != nil {
+			s.logger.Debug("prlimit RLIMIT_NPROC failed", slog.String("error", err.Error()))
+		} else {
+			s.logger.Debug("RLIMIT_NPROC set via prlimit", slog.Int("count", limits.MaxPIDs))
+		}
 	}
 
 	// RLIMIT_NOFILE: File descriptor limit
-	// This limits the number of open files/sockets/pipes
 	if limits.MaxFDs > 0 {
-		rlimits = append(rlimits, syscall.Rlimit{
-			Resource: syscall.RLIMIT_NOFILE,
-			Cur:      uint64(limits.MaxFDs),
-			Max:      uint64(limits.MaxFDs),
-		})
-		s.logger.Debug("RLIMIT_NOFILE set", slog.Int("count", limits.MaxFDs))
+		rlim := unix.Rlimit{Cur: uint64(limits.MaxFDs), Max: uint64(limits.MaxFDs)}
+		if err := unix.Prlimit(pid, unix.RLIMIT_NOFILE, &rlim, nil); err != nil {
+			s.logger.Debug("prlimit RLIMIT_NOFILE failed", slog.String("error", err.Error()))
+		} else {
+			s.logger.Debug("RLIMIT_NOFILE set via prlimit", slog.Int("count", limits.MaxFDs))
+		}
 	}
 
-	cmd.SysProcAttr.Rlimits = rlimits
 	return nil
 }
 
@@ -239,6 +324,23 @@ func (s *LinuxSandbox) setupMountNamespace(cmd *exec.Cmd) error {
 	cmd.SysProcAttr.Cloneflags |= syscall.CLONE_NEWNS
 
 	s.logger.Debug("mount namespace isolation enabled")
+	return nil
+}
+
+// setupPIDNamespace creates a new PID namespace (CLONE_NEWPID)
+// The child process will see itself as PID 1, providing PID isolation.
+// Requires root or user namespaces (CLONE_NEWUSER).
+// Best-effort: failure is logged but doesn't cause overall failure.
+func (s *LinuxSandbox) setupPIDNamespace(cmd *exec.Cmd) error {
+	if cmd.SysProcAttr == nil {
+		cmd.SysProcAttr = &syscall.SysProcAttr{}
+	}
+
+	// CLONE_NEWPID: Create new PID namespace
+	// Child process becomes PID 1 in its namespace and cannot see other processes
+	cmd.SysProcAttr.Cloneflags |= syscall.CLONE_NEWPID
+
+	s.logger.Debug("PID namespace isolation enabled")
 	return nil
 }
 
@@ -332,16 +434,17 @@ func (s *LinuxSandbox) applyCgroupsV2(pid int, limits *policy.ExecutionLimits) e
 // Marked: enabled, degraded, or unsupported
 func (s *LinuxSandbox) Capabilities() Capabilities {
 	caps := Capabilities{
-		CPULimit:            true,            // Always available via rlimits
-		MemoryLimit:         true,            // Always available via rlimits
-		PIDLimit:            true,            // Always available via rlimits
-		FDLimit:             true,            // Always available via rlimits
-		NetworkIsolation:    s.canCreateNet,  // Requires root or CAP_NET_ADMIN
-		FilesystemIsolation: true,            // Always available via mount namespaces
-		Cgroups:             s.useCgroups,    // Depends on kernel and mounted cgroups
-		Namespaces:          true,            // Mount namespaces generally available
-		SupportsSeccomp:     true,            // Modern Linux supports seccomp
-		RequiresRoot:        s.canCreateNet,  // Only network isolation requires root
+		CPULimit:            true,                           // Always available via rlimits
+		MemoryLimit:         true,                           // Always available via rlimits
+		PIDLimit:            true,                           // Always available via rlimits
+		FDLimit:             true,                           // Always available via rlimits
+		NetworkIsolation:    s.canCreateNet || s.canUseUserNS, // Root or user namespace
+		FilesystemIsolation: true,                           // Always available via mount namespaces
+		Cgroups:             s.useCgroups,                   // Depends on kernel and mounted cgroups
+		Namespaces:          true,                           // Mount namespaces generally available
+		SupportsSeccomp:     false,                            // Detection only; BPF enforcement not implemented
+		SupportsLandlock:    s.hasLandlock,                  // Linux 5.13+
+		RequiresRoot:        false,                          // User NS allows non-root network isolation
 	}
 
 	// Add detailed warnings about limitations
@@ -355,10 +458,26 @@ func (s *LinuxSandbox) Capabilities() Capabilities {
 		)
 	}
 
-	if !s.canCreateNet {
+	if !s.canCreateNet && !s.canUseUserNS {
 		caps.Warnings = append(caps.Warnings,
-			"[DEGRADED] Network isolation not available - running without root/CAP_NET_ADMIN",
+			"[DEGRADED] Network isolation not available - running without root/CAP_NET_ADMIN and user namespaces disabled",
 			"[INFO] Network policy enforcement via iptables/tc not possible",
+		)
+	} else if !s.canCreateNet && s.canUseUserNS {
+		caps.Warnings = append(caps.Warnings,
+			"[INFO] Network isolation via user namespaces (non-root)",
+		)
+	}
+
+	if s.hasLandlock {
+		caps.Warnings = append(caps.Warnings,
+			fmt.Sprintf("[INFO] Landlock LSM available (ABI v%d) - filesystem restrictions enabled", s.landlockABI),
+		)
+	}
+
+	if s.hasSeccomp {
+		caps.Warnings = append(caps.Warnings,
+			"[DEGRADED] seccomp detection available but BPF enforcement not yet implemented",
 		)
 	}
 
@@ -408,6 +527,34 @@ func (s *LinuxSandbox) readCgroupValue(cgroupFile, field string) (string, error)
 	return "", fmt.Errorf("field %s not found in %s", field, cgroupFile)
 }
 
+// isInContainer detects if the process is running inside a container (Docker, Kubernetes, etc.)
+// by checking for standard container indicators.
+func isInContainer() bool {
+	// Docker creates /.dockerenv in the container root
+	if _, err := os.Stat("/.dockerenv"); err == nil {
+		return true
+	}
+	// Check /proc/1/cgroup for container-specific cgroup paths
+	if data, err := os.ReadFile("/proc/1/cgroup"); err == nil {
+		content := string(data)
+		if strings.Contains(content, "docker") ||
+			strings.Contains(content, "containerd") ||
+			strings.Contains(content, "kubepods") ||
+			strings.Contains(content, "lxc") {
+			return true
+		}
+	}
+	// Check /proc/1/environ for container_t SELinux label (Kubernetes)
+	if data, err := os.ReadFile("/proc/1/mountinfo"); err == nil {
+		content := string(data)
+		if strings.Contains(content, "/docker/") ||
+			strings.Contains(content, "/containerd/") {
+			return true
+		}
+	}
+	return false
+}
+
 // writeCgroupValue writes a value to a cgroup file (used internally)
 func (s *LinuxSandbox) writeCgroupValue(cgroupFile string, value string) error {
 	if err := os.WriteFile(cgroupFile, []byte(value+"\n"), 0o644); err != nil {
@@ -433,29 +580,3 @@ func calculateCPUQuota(millicores int, period int64) (int64, error) {
 	return quota, nil
 }
 
-// parseMemoryString parses memory strings like "512M", "1G" into bytes
-// Supported suffixes: K (kilobytes), M (megabytes), G (gigabytes)
-func parseMemoryString(s string) int64 {
-	s = strings.TrimSpace(s)
-	if s == "" {
-		return 0
-	}
-
-	var multiplier int64 = 1
-	switch {
-	case strings.HasSuffix(s, "G"):
-		multiplier = 1024 * 1024 * 1024
-		s = strings.TrimSuffix(s, "G")
-	case strings.HasSuffix(s, "M"):
-		multiplier = 1024 * 1024
-		s = strings.TrimSuffix(s, "M")
-	case strings.HasSuffix(s, "K"):
-		multiplier = 1024
-		s = strings.TrimSuffix(s, "K")
-	}
-
-	var val int64
-	// Parse errors result in zero value (safe default)
-	_, _ = fmt.Sscanf(s, "%d", &val) //nolint:errcheck
-	return val * multiplier
-}

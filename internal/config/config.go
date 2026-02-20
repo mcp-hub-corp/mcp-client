@@ -49,8 +49,8 @@ func LoadConfig() (*Config, error) {
 	viper.SetDefault("timeout", 5*time.Minute)
 	viper.SetDefault("max_cpu", 1000) // 1 core
 	viper.SetDefault("max_memory", "512M")
-	viper.SetDefault("max_pids", 10)
-	viper.SetDefault("max_fds", 100)
+	viper.SetDefault("max_pids", 256)
+	viper.SetDefault("max_fds", 1024)
 	viper.SetDefault("log_level", "info")
 	viper.SetDefault("audit_enabled", true)
 	viper.SetDefault("audit_log_file", filepath.Join(getHomeDir(), ".mcp", "audit.log"))
