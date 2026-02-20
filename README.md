@@ -20,9 +20,9 @@
 
 ## Why MCP Hub exists
 
-MCP (Model Context Protocol) is transforming how AI agents interact with external tools. Instead of ad-hoc integrations, MCP provides a standard protocol: agents connect to MCP servers that expose capabilities — file access, database queries, API calls, code execution. The ecosystem is growing fast. Thousands of MCP servers already exist, and every AI framework is adding native MCP support.
+**MCP** (Model Context Protocol) is transforming how AI agents interact with external tools. Instead of ad-hoc integrations, MCP provides a **standard protocol**: agents connect to MCP servers that expose capabilities — file access, database queries, API calls, code execution. The ecosystem is growing fast. Thousands of MCP servers already exist, and **every major AI framework** is adding native MCP support.
 
-But there is a fundamental trust problem. Today, running an MCP server means executing arbitrary code with the full permissions of your user account. The standard workflow looks like this:
+But there is a **fundamental trust problem**. Today, running an MCP server means executing **arbitrary code with the full permissions of your user account**. The standard workflow looks like this:
 
 ```bash
 # This runs arbitrary code with your full system access
@@ -30,16 +30,16 @@ uvx some-mcp-server
 npx @someone/mcp-tool
 ```
 
-No integrity verification. No resource limits. No sandboxing. No audit trail. The package could exfiltrate your SSH keys, mine crypto in the background, or pivot through your network — and you would not know until it is too late. For individual developers experimenting, this might be an acceptable risk. For organizations deploying MCP servers in production, connected to internal databases and APIs, it is not.
+**No integrity verification. No resource limits. No sandboxing. No audit trail.** The package could exfiltrate your SSH keys, mine crypto in the background, or pivot through your network — and you would not know until it is too late. For individual developers experimenting, this might be an acceptable risk. For **organizations deploying MCP servers in production**, connected to internal databases and APIs, it is not.
 
-**MCP Hub Platform** is the trust infrastructure that closes this gap. It is an end-to-end pipeline: publish MCP server source code, automatically analyze it for 14 classes of security vulnerabilities, compute a deterministic certification score, distribute the certified artifact through a content-addressed registry, and execute it with runtime sandboxing and policy enforcement. Every step is auditable. Every artifact is immutable. Every execution is logged.
+**MCP Hub Platform** is the trust infrastructure that closes this gap. It is an **end-to-end pipeline**: publish MCP server source code, automatically analyze it for **14 classes of security vulnerabilities**, compute a **deterministic certification score**, distribute the certified artifact through a **content-addressed registry**, and execute it with **runtime sandboxing and policy enforcement**. Every step is auditable. Every artifact is immutable. Every execution is logged.
 
-The platform is built as four independent components that form a pipeline:
+The platform is built as four components that form a pipeline:
 
 - **[mcp-hub](https://mcp-hub.info)** — Control plane. Ingests source code, orchestrates security analysis, computes certification scores, publishes certified artifacts.
-- **[mcp-scan](https://github.com/security-mcp/mcp-scan)** — Analysis engine. Static security analyzer that detects 14 vulnerability classes (A-N) using pattern matching, taint analysis, and optional AI detection. Supports Python, TypeScript, JavaScript, and Go.
-- **[mcp-registry](https://github.com/security-mcp/mcp-registry)** — Data plane. Content-addressed artifact distribution with SHA-256 integrity, JWT authentication, and scope-based authorization.
-- **mcp-client** (this repository) — Execution plane. The last mile — where all upstream certification materializes as runtime enforcement.
+- **mcp-scan** — Analysis engine. Purpose-built static security analyzer developed in-house by the MCP Hub team, specialized exclusively in MCP server threat patterns. Detects **14 vulnerability classes** (A-N) using pattern matching, taint analysis, and AI-assisted detection across Python, TypeScript, JavaScript, and Go. Not open source — core intellectual property of the platform.
+- **mcp-registry** (open source coming soon) — Data plane. Content-addressed artifact distribution with SHA-256 integrity, JWT authentication, and scope-based authorization.
+- **mcp-client** (this repository) — Execution plane. The last mile — where all upstream certification **materializes as runtime enforcement**.
 
 ## How the platform works
 
@@ -65,24 +65,24 @@ MCP Server (isolated, resource-limited, audited)
 ```
 
 1. **Ingest** — Developer pushes MCP server source to mcp-hub (Git repo, webhook, or CLI upload)
-2. **Analyze** — mcp-scan runs static analysis: 14 vulnerability classes, taint tracking, pattern matching
-3. **Certify** — Hub computes deterministic score (0-100), maps to certification level (0-3)
-4. **Distribute** — Certified artifact published to mcp-registry with immutable SHA-256 digest
-5. **Execute** — mcp-client resolves, validates, enforces policy, sandboxes, and audits the execution
+2. **Analyze** — mcp-scan runs **proprietary static analysis**: 14 vulnerability classes, taint tracking, pattern matching
+3. **Certify** — Hub computes **deterministic score** (0-100), maps to **certification level** (0-3)
+4. **Distribute** — Certified artifact published to mcp-registry with **immutable SHA-256 digest**
+5. **Execute** — mcp-client resolves, validates, **enforces policy**, sandboxes, and audits the execution
 
 ## This repository: the execution layer
 
-`mcp` is where trust becomes enforcement. The upstream pipeline — analysis, scoring, certification — produces artifacts with known security properties. This client is responsible for making those properties matter at runtime.
+`mcp` is where **trust becomes enforcement**. The upstream pipeline — analysis, scoring, certification — produces artifacts with known security properties. This client is responsible for **making those properties matter at runtime**.
 
 What `mcp` does:
 
 - **Resolves** packages from the registry by name, version, or content digest
-- **Validates** every manifest and bundle against its SHA-256 digest before use — no code path can bypass this
-- **Enforces** organizational policies: minimum certification level, allowed origins, environment filtering
-- **Sandboxes** processes with platform-specific isolation: CPU, memory, PID, and file descriptor limits; network default-deny; filesystem confinement
-- **Audits** every execution as structured JSON with automatic secret redaction
+- **Validates** every manifest and bundle against its **SHA-256 digest** before use — no code path can bypass this
+- **Enforces** organizational policies: **minimum certification level**, allowed origins, environment filtering
+- **Sandboxes** processes with platform-specific isolation: CPU, memory, PID, and file descriptor limits; **network default-deny**; filesystem confinement
+- **Audits** every execution as structured JSON with **automatic secret redaction**
 
-This is not just a launcher. `uvx` and `npx` download and run. `mcp` downloads, validates, checks policy, confines, monitors, and logs. It is a runtime trust enforcement layer.
+This is **not just a launcher**. `uvx` and `npx` download and run. `mcp` downloads, validates, checks policy, confines, monitors, and logs. It is a **runtime trust enforcement layer**.
 
 ## Why `mcp` over `uvx` / `npx`?
 
@@ -113,7 +113,7 @@ mcp doctor
 mcp run acme/hello-world@1.2.3
 ```
 
-`mcp doctor` reports which security features are available on your system — cgroups, namespaces, seccomp, Landlock, and more. Start here to understand your security posture before running anything.
+`mcp doctor` reports which security features are available on your system — cgroups, namespaces, seccomp, Landlock, and more. **Start here** to understand your security posture before running anything.
 
 ## Installation
 
@@ -293,7 +293,7 @@ See [`docs/config.example.yaml`](./docs/config.example.yaml) for all available o
 
 ### Integrity verification
 
-Every manifest and bundle is validated against its SHA-256 digest before use. Digests are immutable — a package reference always resolves to the same content. This prevents supply-chain attacks, rollback attacks, and tampering.
+Every manifest and bundle is validated against its **SHA-256 digest before use**. Digests are **immutable** — a package reference always resolves to the same content. This prevents **supply-chain attacks**, rollback attacks, and tampering.
 
 ### Process sandboxing
 
@@ -311,7 +311,7 @@ Resource limits are **mandatory** and **cannot be disabled**.
 
 ### Certification levels
 
-Packages are assigned a certification level (0-3) based on automated security analysis upstream in mcp-hub:
+Packages are assigned a **certification level (0-3)** based on **automated security analysis** upstream in mcp-hub:
 
 | Level | Name | What it means |
 |-------|------|---------------|
