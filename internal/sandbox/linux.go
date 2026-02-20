@@ -30,20 +30,20 @@ func init() {
 // cgroups v2, and namespaces (mount, network, pid).
 // Design principle: SAFE BY DEFAULT - all isolation layers applied, failures documented
 type LinuxSandbox struct {
-	useCgroups        bool   // cgroups available
-	useCgroupsV2      bool   // cgroups v2 available (preferred over v1)
-	cgroupPath        string // path to cgroups mountpoint
-	canCreateNet      bool   // can create network namespaces (requires CAP_NET_ADMIN or root)
-	canCreateMount    bool   // can create mount namespaces (requires unshare capability)
-	canUseUserNS      bool   // can use unprivileged user namespaces for netns
-	hasLandlock       bool   // Landlock LSM available (Linux 5.13+)
-	landlockABI       int    // Landlock ABI version
-	hasSeccomp        bool   // seccomp available on this system
-	cgroupManager     *cgroupManager
-	mu                sync.Mutex
-	pendingLimits     *policy.ExecutionLimits // stored for PostStart prlimit application
-	logger            *slog.Logger
-	trackedCgroups    map[int]string // pid -> cgroup path for cleanup
+	useCgroups     bool   // cgroups available
+	useCgroupsV2   bool   // cgroups v2 available (preferred over v1)
+	cgroupPath     string // path to cgroups mountpoint
+	canCreateNet   bool   // can create network namespaces (requires CAP_NET_ADMIN or root)
+	canCreateMount bool   // can create mount namespaces (requires unshare capability)
+	canUseUserNS   bool   // can use unprivileged user namespaces for netns
+	hasLandlock    bool   // Landlock LSM available (Linux 5.13+)
+	landlockABI    int    // Landlock ABI version
+	hasSeccomp     bool   // seccomp available on this system
+	cgroupManager  *cgroupManager
+	mu             sync.Mutex
+	pendingLimits  *policy.ExecutionLimits // stored for PostStart prlimit application
+	logger         *slog.Logger
+	trackedCgroups map[int]string // pid -> cgroup path for cleanup
 }
 
 // cgroupManager handles cgroups v2 operations (best-effort)
@@ -132,29 +132,18 @@ func (s *LinuxSandbox) Apply(cmd *exec.Cmd, limits *policy.ExecutionLimits, perm
 	}
 
 	// MANDATORY: Apply rlimits (always works, doesn't require elevated privileges)
-	if err := s.applyRLimits(cmd, limits); err != nil {
-		// Critical: rlimits must always work
-		return fmt.Errorf("CRITICAL: failed to apply rlimits: %w", err)
-	}
+	s.applyRLimits(limits)
 
-	// OPTIONAL: Try mount namespace (best-effort, documented if fails)
+	// OPTIONAL: Try mount namespace (best-effort)
 	if s.canCreateMount {
-		if err := s.setupMountNamespace(cmd); err != nil {
-			s.logger.Debug("mount namespace setup failed (non-critical)", slog.String("error", err.Error()))
-		} else {
-			s.logger.Debug("mount namespace enabled for process isolation")
-		}
+		s.setupMountNamespace(cmd)
 	}
 
 	// OPTIONAL: Try PID namespace (best-effort, provides PID isolation)
 	// CLONE_NEWPID requires either root or user namespaces.
 	// The child process will see itself as PID 1 in its namespace.
 	if s.canCreateNet || s.canUseUserNS {
-		if err := s.setupPIDNamespace(cmd); err != nil {
-			s.logger.Debug("PID namespace setup failed (non-critical)", slog.String("error", err.Error()))
-		} else {
-			s.logger.Debug("PID namespace enabled for process isolation")
-		}
+		s.setupPIDNamespace(cmd)
 	}
 
 	// OPTIONAL: Try network namespace if available (best-effort, documented if fails)
@@ -166,11 +155,8 @@ func (s *LinuxSandbox) Apply(cmd *exec.Cmd, limits *policy.ExecutionLimits, perm
 		}
 	} else if s.canUseUserNS {
 		// Fallback: use user namespaces for network isolation without root
-		if err := setupUserNamespace(cmd); err != nil {
-			s.logger.Debug("user namespace setup failed (non-critical)", slog.String("error", err.Error()))
-		} else {
-			s.logger.Debug("user namespace + network namespace enabled (non-root)")
-		}
+		setupUserNamespace(cmd)
+		s.logger.Debug("user namespace + network namespace enabled (non-root)")
 	}
 
 	// OPTIONAL: Landlock filesystem restrictions
@@ -253,13 +239,12 @@ func (s *LinuxSandbox) Cleanup(pid int) error {
 // applyRLimits stores resource limits for later application via prlimit(2) in PostStart.
 // Go's SysProcAttr on Linux does not have an Rlimits field, so we use prlimit(2)
 // after the child process has started to set rlimits on the child process by PID.
-func (s *LinuxSandbox) applyRLimits(cmd *exec.Cmd, limits *policy.ExecutionLimits) error {
+func (s *LinuxSandbox) applyRLimits(limits *policy.ExecutionLimits) {
 	// Store limits for PostStart to apply via prlimit(2)
 	s.mu.Lock()
 	s.pendingLimits = limits
 	s.mu.Unlock()
 	s.logger.Debug("rlimits will be applied via prlimit(2) after process starts")
-	return nil
 }
 
 // applyPrlimits applies rlimits to a running process via prlimit(2) syscall.
@@ -319,8 +304,7 @@ func (s *LinuxSandbox) applyPrlimits(pid int, limits *policy.ExecutionLimits) er
 
 // setupMountNamespace creates a new mount namespace (CLONE_NEWNS)
 // This isolates the filesystem view of the process (mount points, etc.)
-// Best-effort: failure is logged but doesn't cause overall failure
-func (s *LinuxSandbox) setupMountNamespace(cmd *exec.Cmd) error {
+func (s *LinuxSandbox) setupMountNamespace(cmd *exec.Cmd) {
 	if cmd.SysProcAttr == nil {
 		cmd.SysProcAttr = &syscall.SysProcAttr{}
 	}
@@ -330,14 +314,12 @@ func (s *LinuxSandbox) setupMountNamespace(cmd *exec.Cmd) error {
 	cmd.SysProcAttr.Cloneflags |= syscall.CLONE_NEWNS
 
 	s.logger.Debug("mount namespace isolation enabled")
-	return nil
 }
 
 // setupPIDNamespace creates a new PID namespace (CLONE_NEWPID)
 // The child process will see itself as PID 1, providing PID isolation.
 // Requires root or user namespaces (CLONE_NEWUSER).
-// Best-effort: failure is logged but doesn't cause overall failure.
-func (s *LinuxSandbox) setupPIDNamespace(cmd *exec.Cmd) error {
+func (s *LinuxSandbox) setupPIDNamespace(cmd *exec.Cmd) {
 	if cmd.SysProcAttr == nil {
 		cmd.SysProcAttr = &syscall.SysProcAttr{}
 	}
@@ -347,7 +329,6 @@ func (s *LinuxSandbox) setupPIDNamespace(cmd *exec.Cmd) error {
 	cmd.SysProcAttr.Cloneflags |= syscall.CLONE_NEWPID
 
 	s.logger.Debug("PID namespace isolation enabled")
-	return nil
 }
 
 // setupNetworkNamespace creates a new network namespace (CLONE_NEWNET)
@@ -383,15 +364,15 @@ func (s *LinuxSandbox) applyCgroupsV2(pid int, limits *policy.ExecutionLimits) e
 	cgroupPath := filepath.Join(s.cgroupManager.rootPath, cgroupName)
 
 	// Attempt to create cgroup directory
-	if err := os.Mkdir(cgroupPath, 0755); err != nil {
+	if err := os.Mkdir(cgroupPath, 0750); err != nil {
 		return fmt.Errorf("cannot create cgroup directory (may require elevated privileges): %w", err)
 	}
 
 	// Add process to cgroup
 	cgroupProcsPath := filepath.Join(cgroupPath, "cgroup.procs")
-	if err := os.WriteFile(cgroupProcsPath, []byte(strconv.Itoa(pid)), 0644); err != nil {
+	if err := os.WriteFile(cgroupProcsPath, []byte(strconv.Itoa(pid)), 0600); err != nil {
 		// Clean up failed cgroup
-		os.RemoveAll(cgroupPath)
+		_ = os.RemoveAll(cgroupPath)
 		return fmt.Errorf("cannot add process to cgroup: %w", err)
 	}
 
@@ -405,7 +386,7 @@ func (s *LinuxSandbox) applyCgroupsV2(pid int, limits *policy.ExecutionLimits) e
 		period := int64(100000) // 100ms standard period
 		quota, _ := calculateCPUQuota(limits.MaxCPU, period)
 		cpuMax := fmt.Sprintf("%d %d", quota, period)
-		if err := os.WriteFile(filepath.Join(cgroupPath, "cpu.max"), []byte(cpuMax), 0644); err != nil {
+		if err := os.WriteFile(filepath.Join(cgroupPath, "cpu.max"), []byte(cpuMax), 0600); err != nil {
 			s.logger.Debug("failed to set cpu.max", slog.String("error", err.Error()))
 		} else {
 			s.logger.Debug("cpu.max set via cgroups v2", slog.String("value", cpuMax))
@@ -417,7 +398,7 @@ func (s *LinuxSandbox) applyCgroupsV2(pid int, limits *policy.ExecutionLimits) e
 		memBytes := parseMemoryString(limits.MaxMemory)
 		if memBytes > 0 {
 			memStr := strconv.FormatInt(memBytes, 10)
-			if err := os.WriteFile(filepath.Join(cgroupPath, "memory.max"), []byte(memStr), 0644); err != nil {
+			if err := os.WriteFile(filepath.Join(cgroupPath, "memory.max"), []byte(memStr), 0600); err != nil {
 				s.logger.Debug("failed to set memory.max", slog.String("error", err.Error()))
 			} else {
 				s.logger.Debug("memory.max set via cgroups v2", slog.String("bytes", memStr))
@@ -428,7 +409,7 @@ func (s *LinuxSandbox) applyCgroupsV2(pid int, limits *policy.ExecutionLimits) e
 	// Apply PID limit (best-effort)
 	if limits.MaxPIDs > 0 {
 		pidsStr := strconv.Itoa(limits.MaxPIDs)
-		if err := os.WriteFile(filepath.Join(cgroupPath, "pids.max"), []byte(pidsStr), 0644); err != nil {
+		if err := os.WriteFile(filepath.Join(cgroupPath, "pids.max"), []byte(pidsStr), 0600); err != nil {
 			s.logger.Debug("failed to set pids.max", slog.String("error", err.Error()))
 		} else {
 			s.logger.Debug("pids.max set via cgroups v2", slog.String("count", pidsStr))
@@ -442,17 +423,17 @@ func (s *LinuxSandbox) applyCgroupsV2(pid int, limits *policy.ExecutionLimits) e
 // Marked: enabled, degraded, or unsupported
 func (s *LinuxSandbox) Capabilities() Capabilities {
 	caps := Capabilities{
-		CPULimit:            true,                           // Always available via rlimits
-		MemoryLimit:         true,                           // Always available via rlimits
-		PIDLimit:            true,                           // Always available via rlimits
-		FDLimit:             true,                           // Always available via rlimits
+		CPULimit:            true,                             // Always available via rlimits
+		MemoryLimit:         true,                             // Always available via rlimits
+		PIDLimit:            true,                             // Always available via rlimits
+		FDLimit:             true,                             // Always available via rlimits
 		NetworkIsolation:    s.canCreateNet || s.canUseUserNS, // Root or user namespace
-		FilesystemIsolation: true,                           // Always available via mount namespaces
-		Cgroups:             s.useCgroups,                   // Depends on kernel and mounted cgroups
-		Namespaces:          true,                           // Mount namespaces generally available
+		FilesystemIsolation: true,                             // Always available via mount namespaces
+		Cgroups:             s.useCgroups,                     // Depends on kernel and mounted cgroups
+		Namespaces:          true,                             // Mount namespaces generally available
 		SupportsSeccomp:     false,                            // Detection only; BPF enforcement not implemented
-		SupportsLandlock:    s.hasLandlock,                  // Linux 5.13+
-		RequiresRoot:        false,                          // User NS allows non-root network isolation
+		SupportsLandlock:    s.hasLandlock,                    // Linux 5.13+
+		RequiresRoot:        false,                            // User NS allows non-root network isolation
 	}
 
 	// Add detailed warnings about limitations
@@ -519,25 +500,6 @@ func (s *LinuxSandbox) CleanupCgroup(pid int) error {
 	return nil
 }
 
-// readCgroupValue reads a value from a cgroup file
-// Used for diagnostics and validation
-func (s *LinuxSandbox) readCgroupValue(cgroupFile, field string) (string, error) {
-	content, err := os.ReadFile(cgroupFile)
-	if err != nil {
-		return "", fmt.Errorf("cannot read cgroup file: %w", err)
-	}
-
-	lines := strings.Split(string(content), "\n")
-	for _, line := range lines {
-		parts := strings.Fields(line)
-		if len(parts) >= 2 && parts[0] == field {
-			return parts[1], nil
-		}
-	}
-
-	return "", fmt.Errorf("field %s not found in %s", field, cgroupFile)
-}
-
 // isInContainer detects if the process is running inside a container (Docker, Kubernetes, etc.)
 // by checking for standard container indicators.
 func isInContainer() bool {
@@ -566,14 +528,6 @@ func isInContainer() bool {
 	return false
 }
 
-// writeCgroupValue writes a value to a cgroup file (used internally)
-func (s *LinuxSandbox) writeCgroupValue(cgroupFile string, value string) error {
-	if err := os.WriteFile(cgroupFile, []byte(value+"\n"), 0o644); err != nil {
-		return fmt.Errorf("failed to write cgroup value: %w", err)
-	}
-	return nil
-}
-
 // calculateCPUQuota converts millicores to cgroups CPU quota format
 // Returns quota value for use with "cpu.max" in cgroups v2
 // Formula: (millicores * period) / 1000
@@ -590,4 +544,3 @@ func calculateCPUQuota(millicores int, period int64) (int64, error) {
 	quota := (int64(millicores) * period) / 1000
 	return quota, nil
 }
-

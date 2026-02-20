@@ -30,7 +30,7 @@ func canUseUserNamespaces() bool {
 //
 // The resulting process sees itself as root (uid 0 / gid 0) inside the namespace
 // while remaining unprivileged on the host.
-func setupUserNamespace(cmd *exec.Cmd) error {
+func setupUserNamespace(cmd *exec.Cmd) {
 	if cmd.SysProcAttr == nil {
 		cmd.SysProcAttr = &syscall.SysProcAttr{}
 	}
@@ -55,6 +55,4 @@ func setupUserNamespace(cmd *exec.Cmd) error {
 			Size:        1,
 		},
 	}
-
-	return nil
 }

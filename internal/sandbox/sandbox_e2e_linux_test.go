@@ -185,6 +185,13 @@ func TestLinuxSandbox_MemoryLimitEnforced(t *testing.T) {
 		t.Skip("cgroups v2 required for reliable memory limit enforcement")
 	}
 
+	// Verify we can actually write to cgroups (requires root or delegation)
+	testCgroup := filepath.Join("/sys/fs/cgroup", fmt.Sprintf("mcp-test-%d", os.Getpid()))
+	if err := os.Mkdir(testCgroup, 0750); err != nil {
+		t.Skipf("cgroups v2 detected but not writable (need root or delegation): %v", err)
+	}
+	_ = os.Remove(testCgroup)
+
 	allocBin := buildTestProgram(t, "allocmem")
 
 	// Set a small memory limit (32M) and try to allocate 256M

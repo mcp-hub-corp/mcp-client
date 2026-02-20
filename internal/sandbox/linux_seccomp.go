@@ -23,14 +23,3 @@ func detectSeccomp() bool {
 	_, err = os.Stat("/proc/sys/kernel/seccomp")
 	return err == nil
 }
-
-// buildSeccompNotice returns an informational string describing the current
-// seccomp availability. This is a detection-only module; actually applying
-// seccomp-BPF filters to child processes from Go would require a helper
-// binary approach since Go does not expose SysProcAttr.Seccomp.
-func buildSeccompNotice() string {
-	if detectSeccomp() {
-		return "seccomp: available (detection only; enforcement requires helper binary)"
-	}
-	return "seccomp: not available on this system"
-}
