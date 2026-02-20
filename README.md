@@ -1,529 +1,433 @@
-# mcp-client
+<p align="center">
+  <h1 align="center">mcp</h1>
+  <p align="center">
+    <strong>The secure launcher for MCP servers</strong>
+  </p>
+  <p align="center">
+    Download, validate, sandbox, and execute MCP servers — with integrity checks, resource limits, and audit logging built in.
+  </p>
+  <p align="center">
+    <a href="https://github.com/security-mcp/mcp-client/actions"><img src="https://github.com/security-mcp/mcp-client/workflows/CI/badge.svg" alt="CI"></a>
+    <a href="https://goreportcard.com/report/github.com/security-mcp/mcp-client"><img src="https://goreportcard.com/badge/github.com/security-mcp/mcp-client" alt="Go Report Card"></a>
+    <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License: MIT"></a>
+    <a href="go.mod"><img src="https://img.shields.io/badge/Go-1.24+-00ADD8?logo=go&logoColor=white" alt="Go Version"></a>
+    <a href="https://github.com/security-mcp/mcp-client/releases"><img src="https://img.shields.io/github/v/release/security-mcp/mcp-client?color=orange" alt="Release"></a>
+  </p>
+</p>
 
-[![CI](https://github.com/security-mcp/mcp-client/workflows/CI/badge.svg)](https://github.com/security-mcp/mcp-client/actions)
-[![Go Report Card](https://goreportcard.com/badge/github.com/security-mcp/mcp-client)](https://goreportcard.com/report/github.com/security-mcp/mcp-client)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Go Version](https://img.shields.io/github/go-mod/go-version/security-mcp/mcp-client)](go.mod)
+---
 
-Secure CLI launcher for MCP (Model Context Protocol) servers. Download, validate, and execute MCP packages from a compatible registry with lightweight security policies and resource isolation.
+## The problem
 
-## What is mcp-client?
+Today, running an MCP server means trusting it blindly:
 
-**mcp-client** is a command-line tool that:
-- Resolves immutable package references (`org/name@version`, `org/name@sha`, `org/name@digest`)
-- Downloads and validates manifests and bundles from a registry
-- Applies security policies (network allowlists, environment filtering, subprocess control)
-- Enforces resource limits (CPU, memory, processes, file descriptors)
-- Executes MCP servers in isolated processes
-- Audits all executions locally
+```bash
+# With uvx or npx, you're running arbitrary code with full system access
+uvx some-mcp-server
+npx @someone/mcp-tool
+```
 
-## Features
+No integrity checks. No resource limits. No sandboxing. No audit trail. The MCP server gets the same permissions as your user account — full access to your filesystem, network, and environment variables. If the package is compromised, you won't know until it's too late.
 
-- **Package Resolution**: Resolves immutable references with semantic versioning, SHA, and digest support
-- **Content-Addressable Cache**: Avoids repeated downloads with mandatory SHA-256 validation
-- **Security Policies**: Network allowlists, environment variable filtering, subprocess control
-- **Resource Limits**: CPU, memory, process, and file descriptor limits (platform-specific)
-- **Audit Logging**: Structured JSON audit logs of all executions with secret redaction
-- **Multi-Platform**: Linux, macOS, and Windows support with platform-specific isolation mechanisms
-- **Light-Weight Sandbox**: Process-level isolation (not VM-level), minimal resource overhead
+## The solution
 
-## Platform Support
+**`mcp`** adds a trust layer between you and MCP servers:
 
-| Feature | Linux | macOS | Windows |
-|---------|-------|-------|---------|
-| Resource Limits | ✅ | ❌ | ❌ |
-| Network Isolation | ✅ | ❌ | ❌ |
-| Filesystem Isolation | ✅ | ❌ | ❌ |
-| Subprocess Control | ✅ | ⚠️ | ❌ |
-| Audit Logging | ✅ | ✅ | ✅ |
-| **Production Ready** | ✅ | ❌ | ❌ |
+```bash
+# Validated, sandboxed, audited execution
+mcp run acme/hello-world@1.2.3
+```
 
-✅ = Fully supported; ⚠️ = Limited capabilities; ❌ = Not available
+Every package is **integrity-verified** (SHA-256), **sandboxed** (resource limits + process isolation), and **audited** (structured JSON logs). You know exactly what you're running, what it can access, and what it did.
 
-### ⚠️ CRITICAL: macOS and Windows Sandbox Limitations
+## Why `mcp` over `uvx` / `npx`?
 
-**macOS and Windows are NOT safe for production use** due to known sandbox bypass vulnerabilities:
+| | `uvx` / `npx` | `mcp` |
+|---|---|---|
+| **Integrity** | None. Runs whatever is downloaded | SHA-256 digest validation on every manifest and bundle |
+| **Sandboxing** | None. Full system access | Process isolation with CPU, memory, PID, and FD limits |
+| **Network** | Unrestricted | Default-deny with allowlists (Linux) |
+| **Filesystem** | Full access | Confined to working directory (Linux) |
+| **Subprocesses** | Unrestricted | Blocked unless explicitly declared |
+| **Secrets** | Visible in env/logs | Redacted from all logs, passed by reference |
+| **Audit trail** | None | Structured JSON logs of every execution |
+| **Certification** | None | 4-level certification system (0-3) |
+| **Cache** | Partial | Content-addressable with SHA-256 keying |
+| **Policy enforcement** | None | Configurable minimum certification, origin filtering |
 
-- **macOS (CLIENT-CRIT-003):** Resource limits are NOT enforced on child processes
-- **Windows (CLIENT-CRIT-004, CLIENT-CRIT-005):** Job Object limits are NOT applied
+## Quick start
 
-**Production recommendations:**
-- ✅ Use Linux with cgroups
-- ✅ Use Docker containers on any platform
-- ✅ Use Kubernetes with resource limits
-- ❌ Do NOT run untrusted MCPs on bare metal macOS/Windows
+```bash
+# Install
+go install github.com/security-mcp/mcp-client/cmd/mcp@latest
 
-**See [docs/SECURITY_SANDBOX_LIMITATIONS.md](docs/SECURITY_SANDBOX_LIMITATIONS.md) for details and mitigation strategies.**
+# Check what your system supports
+mcp doctor
+
+# Run an MCP server
+mcp run acme/hello-world@1.2.3
+```
 
 ## Installation
 
-### From Binary
+### Pre-built binaries
 
-Pre-built binaries are available for Linux (amd64, arm64), macOS (amd64, arm64), and Windows (amd64, arm64):
+Download from [GitHub Releases](https://github.com/security-mcp/mcp-client/releases):
 
 ```bash
-# Linux
-curl -sSL https://github.com/security-mcp/mcp-client/releases/download/v1.0.0/mcp-linux-amd64 \
-  -o /usr/local/bin/mcp && chmod +x /usr/local/bin/mcp
+# Linux (amd64)
+curl -sSL https://github.com/security-mcp/mcp-client/releases/latest/download/mcp_linux_amd64.tar.gz | tar xz
+sudo mv mcp /usr/local/bin/
 
-# macOS
-curl -sSL https://github.com/security-mcp/mcp-client/releases/download/v1.0.0/mcp-darwin-amd64 \
-  -o /usr/local/bin/mcp && chmod +x /usr/local/bin/mcp
+# Linux (arm64)
+curl -sSL https://github.com/security-mcp/mcp-client/releases/latest/download/mcp_linux_arm64.tar.gz | tar xz
+sudo mv mcp /usr/local/bin/
 
-# Windows
-curl -sSL https://github.com/security-mcp/mcp-client/releases/download/v1.0.0/mcp-windows-amd64.exe \
-  -o "C:\Program Files\mcp.exe"
+# macOS (Apple Silicon)
+curl -sSL https://github.com/security-mcp/mcp-client/releases/latest/download/mcp_darwin_arm64.tar.gz | tar xz
+sudo mv mcp /usr/local/bin/
+
+# macOS (Intel)
+curl -sSL https://github.com/security-mcp/mcp-client/releases/latest/download/mcp_darwin_amd64.tar.gz | tar xz
+sudo mv mcp /usr/local/bin/
 ```
 
-### From Source
+### From source
+
+Requires Go 1.24+:
 
 ```bash
-# Clone the repository
-git clone https://github.com/security-mcp/mcp-client
+go install github.com/security-mcp/mcp-client/cmd/mcp@latest
+```
+
+Or clone and build:
+
+```bash
+git clone https://github.com/security-mcp/mcp-client.git
 cd mcp-client
-
-# Build the binary
-make build
-
-# Binary is now available as ./mcp
-./mcp --version
-
-# Or install to $GOPATH/bin
-make install
-mcp --version
+make build    # binary at ./mcp
+make install  # installs to $GOPATH/bin
 ```
 
-### Requirements
+### Docker
 
-- Go 1.21 or later (for building from source)
-- No external runtime dependencies for pre-built binaries
+```bash
+docker run --rm -it ghcr.io/security-mcp/mcp-client run acme/tool@1.0.0
+```
 
-## Quick Start
+### Verify installation
 
-### Check System Capabilities
+```bash
+mcp --version
+mcp doctor      # shows available security features
+```
+
+## Usage
+
+### Run an MCP server
+
+```bash
+# By version
+mcp run acme/tool@1.2.3
+
+# Latest version
+mcp run acme/tool@latest
+
+# By content digest
+mcp run acme/tool@sha256:a1b2c3...
+
+# With timeout and env vars
+mcp run acme/tool@1.0.0 --timeout 10m --env API_KEY=secret
+
+# Force re-download (skip cache)
+mcp run acme/tool@1.0.0 --no-cache
+```
+
+### Pre-download packages
+
+```bash
+# Pull without executing — useful for CI/CD warm-up
+mcp pull acme/tool@1.2.3
+
+# Subsequent runs are instant (served from cache)
+mcp run acme/tool@1.2.3
+```
+
+### Publish a package
+
+```bash
+# Authenticate first
+mcp login --token YOUR_TOKEN
+
+# Push to the hub
+mcp push acme/my-tool@1.0.0 --source ./dist
+```
+
+### Inspect a package
+
+```bash
+mcp info acme/tool@1.2.3          # human-readable
+mcp info acme/tool@1.2.3 --json   # machine-readable
+```
+
+### Manage cache
+
+```bash
+mcp cache ls                      # list cached artifacts
+mcp cache ls --json               # JSON output
+mcp cache rm sha256:abc123...     # remove specific artifact
+mcp cache rm --all                # clear everything
+```
+
+### Authentication
+
+```bash
+mcp login --token YOUR_TOKEN      # store credentials
+mcp logout                        # remove credentials
+
+# Or use environment variables
+export MCP_REGISTRY_TOKEN=YOUR_TOKEN
+mcp run acme/tool@1.0.0
+```
+
+### Diagnose system capabilities
 
 ```bash
 mcp doctor
 ```
 
-Shows what security features are available on your system.
-
-### Execute a Package
-
-```bash
-# Run with version
-mcp run acme/hello-world@1.2.3
-
-# Run with latest version
-mcp run acme/hello-world@latest
-
-# Run with SHA reference
-mcp run acme/hello-world@sha:abc123def456
-```
-
-### Pre-download Package
-
-```bash
-# Download to cache without executing
-mcp pull acme/tool@1.2.3
-
-# Later, mcp run uses cache (instant execution)
-mcp run acme/tool@1.2.3
-```
-
-### View Package Information
-
-```bash
-# Show package manifest details
-mcp info acme/tool@1.2.3 --json
-```
-
-### Manage Cache
-
-```bash
-# List cached artifacts
-mcp cache ls
-
-# Remove specific artifact
-mcp cache rm sha256:abc123...
-
-# Clear all cache
-mcp cache rm --all
-```
-
-### Authenticate with Registry
-
-```bash
-# Login to registry
-mcp login --token YOUR_TOKEN
-
-# Or use environment variable
-export MCP_REGISTRY_TOKEN=YOUR_TOKEN
-mcp run acme/tool@1.0.0
-```
+Shows which security features are available on your platform: cgroups, namespaces, seccomp, Landlock, and more.
 
 ## Configuration
-
-### Configuration File
 
 Create `~/.mcp/config.yaml`:
 
 ```yaml
+# Registry connection
 registry:
   url: https://registry.mcp-hub.info
   timeout: 30s
 
+# Local cache
 cache:
   dir: ~/.mcp/cache
   max_size: 10GB
-  ttl: 720h
+  ttl: 720h          # 30 days
 
+# Execution defaults
 executor:
   default_timeout: 5m
-  max_cpu: 1000        # millicores (1000 = 1 core)
+  max_cpu: 1000       # millicores (1000 = 1 core)
   max_memory: 512M
   max_pids: 10
   max_fds: 100
 
+# Security policies
 security:
   network:
     default_deny: true
   subprocess:
     allow: false
 
+# Policy enforcement
+policy:
+  min_cert_level: 1             # minimum certification level (0-3)
+  cert_enforcement: strict      # strict | warn | disabled
+  allowed_origins:              # empty = allow all
+    - official
+    - verified
+
+# Audit logging
 audit:
   enabled: true
   log_file: ~/.mcp/audit.log
   format: json
-
-log:
-  level: info
-  format: text
 ```
 
-See `docs/config.example.yaml` for all available options with detailed explanations.
+**Configuration precedence:** CLI flags > environment variables > config file
 
-### Environment Variables
-
-Override configuration file settings:
+Environment variables use the `MCP_` prefix:
 
 ```bash
 export MCP_REGISTRY_URL=https://custom-registry.com
+export MCP_REGISTRY_TOKEN=secret
 export MCP_CACHE_DIR=/custom/cache
 export MCP_LOG_LEVEL=debug
-export MCP_REGISTRY_TOKEN=secret
-
-mcp run acme/tool@1.0.0
 ```
 
-### Command-Line Flags
+See [`docs/config.example.yaml`](./docs/config.example.yaml) for all available options.
 
-Override both config and environment variables:
+## Security model
 
-```bash
-mcp run acme/tool@1.0.0 \
-  --registry https://other-registry.com \
-  --cache-dir /tmp/cache \
-  --timeout 10m \
-  --verbose
+`mcp` implements **defense-in-depth** with multiple security layers:
+
+### Integrity verification
+
+Every manifest and bundle is validated against its SHA-256 digest before use. Digests are immutable — a package reference always resolves to the same content. This prevents supply-chain attacks, rollback attacks, and tampering.
+
+### Process sandboxing
+
+MCP servers run inside lightweight process-level sandboxes with:
+
+- **CPU limits** — prevent crypto-mining and resource exhaustion
+- **Memory limits** — prevent OOM conditions on the host
+- **PID limits** — prevent fork bombs
+- **File descriptor limits** — prevent resource exhaustion
+- **Network isolation** — default-deny with manifest-controlled allowlists (Linux)
+- **Filesystem confinement** — restricted to working directory (Linux)
+- **Subprocess control** — blocked unless the manifest explicitly declares permission
+
+Resource limits are **mandatory** and **cannot be disabled**.
+
+### Certification levels
+
+Packages are assigned a certification level (0-3) based on automated security analysis:
+
+| Level | Name | What it means |
+|-------|------|---------------|
+| 0 | Integrity Verified | Digest and schema validation passed |
+| 1 | Static Verified | Automated analysis score >= 60 |
+| 2 | Security Certified | Full analysis score >= 80, evidence available |
+| 3 | Runtime Certified | Dynamic analysis passed (future) |
+
+You can enforce a minimum certification level in your config:
+
+```yaml
+policy:
+  min_cert_level: 1
+  cert_enforcement: strict   # block packages below this level
 ```
 
-## Commands Reference
+### Audit logging
 
-### `mcp run <ref> [flags]`
+Every execution is logged as structured JSON with:
+- Package reference and digest
+- Applied resource limits
+- Execution duration and exit code
+- All secrets redacted automatically
 
-Execute an MCP server from a package reference.
+### What `mcp` does NOT protect against
 
-```bash
-# Basic usage
-mcp run acme/tool@1.2.3
+- Kernel exploits or hardware side-channels
+- Attacks that require VM-level isolation
+- macOS/Windows sandbox bypasses (see Platform Support below)
 
-# With timeout
-mcp run acme/tool@1.2.3 --timeout 5m
+See [`docs/SECURITY.md`](./docs/SECURITY.md) for the full threat model.
 
-# With environment variables
-mcp run acme/tool@1.2.3 --env LOG_LEVEL=debug --env API_KEY=secret
+## Platform support
 
-# Force re-download (ignore cache)
-mcp run acme/tool@1.2.3 --no-cache
+| Feature | Linux | macOS | Windows |
+|---------|:-----:|:-----:|:-------:|
+| CPU / Memory / PID limits | cgroups v2 + rlimits | rlimits | Job Objects |
+| Network isolation | namespaces | — | — |
+| Filesystem isolation | Landlock + bind mounts | — | — |
+| Subprocess control | seccomp | limited | — |
+| Audit logging | full | full | full |
+| **Production ready** | **Yes** | **No** | **No** |
 
-# Verbose output
-mcp run acme/tool@1.2.3 --verbose
+> **Important:** macOS and Windows sandboxes have known limitations. Resource limits on child processes are not reliably enforced. For production workloads with untrusted MCP servers, use **Linux with cgroups** or run inside a **Docker container**.
+
+`mcp doctor` reports exactly which capabilities are available on your system.
+
+## Architecture
+
+```
+                  ┌──────────────┐
+                  │   mcp CLI    │
+                  └──────┬───────┘
+                         │
+              ┌──────────┼──────────┐
+              ▼          ▼          ▼
+        ┌──────────┐ ┌────────┐ ┌────────┐
+        │ Registry │ │ Cache  │ │ Policy │
+        │  Client  │ │ Store  │ │ Engine │
+        └────┬─────┘ └───┬────┘ └───┬────┘
+             │           │          │
+             ▼           ▼          ▼
+        ┌──────────────────────────────┐
+        │       Executor + Sandbox     │
+        │  (platform-specific isolation)│
+        └──────────────┬───────────────┘
+                       │
+                       ▼
+                 ┌────────────┐
+                 │ MCP Server │
+                 │  (STDIO)   │
+                 └────────────┘
 ```
 
-### `mcp pull <ref> [flags]`
+**Flow:** resolve package → download & validate → check policy → apply sandbox → execute → audit log
 
-Pre-download a package without executing (useful for CI/CD).
-
-```bash
-mcp pull acme/tool@1.2.3
 ```
-
-### `mcp info <ref> [flags]`
-
-Display package information.
-
-```bash
-# Show manifest
-mcp info acme/tool@1.2.3
-
-# JSON output
-mcp info acme/tool@1.2.3 --json
+internal/
+├── cli/         # Cobra command handlers (9 commands)
+├── config/      # Configuration loading (YAML + env + flags)
+├── registry/    # Registry API client with auth & retries
+├── manifest/    # MCP manifest parsing and validation
+├── cache/       # Content-addressable SHA-256 cache
+├── policy/      # Security policy & resource limits
+├── executor/    # Process execution with sandbox
+├── sandbox/     # Platform-specific isolation
+│   ├── linux.go       # cgroups, namespaces, seccomp, Landlock
+│   ├── darwin.go      # rlimits, Seatbelt (limited)
+│   └── windows.go     # Job Objects, integrity levels
+├── audit/       # Structured JSON audit logging
+├── hub/         # Hub API client (push workflow)
+└── packaging/   # Bundle creation with security checks
 ```
-
-### `mcp login [flags]`
-
-Authenticate with the registry.
-
-```bash
-mcp login --token YOUR_TOKEN
-mcp login --registry https://custom-registry.com --token TOKEN
-```
-
-### `mcp logout [flags]`
-
-Remove stored authentication credentials.
-
-```bash
-mcp logout
-```
-
-### `mcp cache [command]`
-
-Manage local package cache.
-
-```bash
-# List all cached artifacts
-mcp cache ls
-
-# List as JSON
-mcp cache ls --json
-
-# Remove specific artifact
-mcp cache rm sha256:abc123...
-
-# Clear all cache
-mcp cache rm --all
-```
-
-### `mcp doctor`
-
-Diagnose system capabilities.
-
-```bash
-mcp doctor
-```
-
-Shows what security isolation features are available on your system.
 
 ## Documentation
 
-- **[OVERVIEW.md](./docs/OVERVIEW.md)**: Architecture, concepts, and workflow
-- **[SECURITY.md](./docs/SECURITY.md)**: Threat model, security invariants, platform capabilities
-- **[EXAMPLES.md](./docs/EXAMPLES.md)**: Usage examples, CI/CD integration, troubleshooting
-- **[REGISTRY-CONTRACT.md](./docs/REGISTRY-CONTRACT.md)**: Registry API specification
-- **[config.example.yaml](./docs/config.example.yaml)**: Configuration reference
+| Document | Description |
+|----------|-------------|
+| [`docs/OVERVIEW.md`](./docs/OVERVIEW.md) | Architecture and concepts |
+| [`docs/SECURITY.md`](./docs/SECURITY.md) | Threat model and security invariants |
+| [`docs/EXAMPLES.md`](./docs/EXAMPLES.md) | Usage examples and CI/CD integration |
+| [`docs/LINUX_SANDBOX.md`](./docs/LINUX_SANDBOX.md) | Linux sandbox deep dive |
+| [`docs/MACOS_SANDBOX.md`](./docs/MACOS_SANDBOX.md) | macOS capabilities and limitations |
+| [`docs/WINDOWS_SANDBOX.md`](./docs/WINDOWS_SANDBOX.md) | Windows sandbox details |
+| [`docs/CERT_LEVEL_POLICY.md`](./docs/CERT_LEVEL_POLICY.md) | Certification level enforcement |
+| [`docs/PUSH.md`](./docs/PUSH.md) | Package publishing guide |
+| [`docs/REGISTRY-CONTRACT.md`](./docs/REGISTRY-CONTRACT.md) | Registry API specification |
+| [`docs/config.example.yaml`](./docs/config.example.yaml) | Full configuration reference |
 
 ## Development
 
 ### Prerequisites
 
-- Go 1.21 or later
-- Make (for convenience)
-- golangci-lint (for linting)
+- Go 1.24+
+- Make
+- [golangci-lint](https://golangci-lint.run/usage/install/) (for linting)
 
-### Build
-
-```bash
-make build
-```
-
-Binary is created as `./mcp`.
-
-### Test
+### Build and test
 
 ```bash
-# Run all tests
-make test
-
-# Run tests with coverage report
-make test-coverage
+make build          # build binary
+make test           # run tests with race detection
+make test-coverage  # generate HTML coverage report
+make lint           # run linter
+make fmt            # format code
+make all            # format + lint + test + build
 ```
 
-### Lint
+### Project conventions
 
-```bash
-make lint
-```
-
-Requires [golangci-lint](https://golangci-lint.run/usage/install/).
-
-### Format Code
-
-```bash
-make fmt
-```
-
-### Clean
-
-```bash
-make clean
-```
-
-## Project Status
-
-**Version**: 1.0 (Production Ready)
-
-Current implementation includes:
-- ✅ CLI structure and configuration loading
-- ✅ Registry integration (resolve, download, authentication)
-- ✅ Content-addressable cache with SHA-256 validation
-- ✅ Manifest parsing and validation
-- ✅ Linux sandbox (cgroups, namespaces, seccomp)
-- ✅ macOS sandbox (rlimits, timeouts)
-- ✅ Windows sandbox (Job Objects)
-- ✅ STDIO executor (HTTP executor planned for future)
-- ✅ Policy enforcement (network, environment, subprocess)
-- ✅ Audit logging
-- ✅ Comprehensive documentation
-
-Future enhancements:
-- HTTP executor support
-- Signature verification for packages
-- Multi-registry federation
-- Telemetry and monitoring
-- Desktop GUI wrapper
-
-## Security
-
-mcp-client implements **lightweight, process-level security controls**:
-
-### What's Protected
-- **Resource Exhaustion**: CPU, memory, process, and file descriptor limits
-- **Filesystem Breakout**: Process confined to working directory
-- **Network Access**: Default-deny with manifest-controlled allowlist
-- **Secret Leakage**: Secrets redacted from logs
-- **Supply Chain Attacks**: Mandatory SHA-256 digest validation
-- **Subprocess Escape**: Controlled via manifest declaration
-
-### Limitations
-- Not a VM-level sandbox (suitable for untrusted code review, not execution)
-- macOS: Limited to rlimits (no network/filesystem isolation)
-- Windows: Limited without WFP drivers (no network isolation)
-- Cannot protect against kernel exploits or hardware side-channels
-- Does not inspect or modify package code
-
-See [docs/SECURITY.md](./docs/SECURITY.md) for detailed threat model and platform-specific capabilities.
-
-## Examples
-
-### CI/CD Integration
-
-```bash
-# Pre-download packages for faster CI jobs
-mcp pull myorg/linter@1.0.0 &
-mcp pull myorg/formatter@1.0.0 &
-wait
-
-# Run tools (from cache, instant)
-mcp run myorg/linter@1.0.0 -- ./src
-mcp run myorg/formatter@1.0.0 -- --check ./src
-```
-
-### With Environment Variables
-
-```bash
-# From file
-mcp run myorg/api-tool@2.0.0 --env-file .env
-
-# From CLI
-mcp run myorg/api-tool@2.0.0 \
-  --env LOG_LEVEL=debug \
-  --env API_ENDPOINT=https://api.example.com
-```
-
-### Resource Limits
-
-```bash
-# Override default limits
-mcp run heavy-workload@1.0.0 \
-  --timeout 30m \
-  --max-memory 2G
-```
-
-See [docs/EXAMPLES.md](./docs/EXAMPLES.md) for more examples and troubleshooting.
-
-## License
-
-[License TBD]
+- **3 direct dependencies** — Cobra (CLI), Viper (config), Testify (tests)
+- **Zero CGO** — `CGO_ENABLED=0` for fully static, cross-platform binaries
+- **GORM-style errors** — all errors wrapped with context (`fmt.Errorf("doing X: %w", err)`)
+- **Platform isolation via build tags** — `//go:build linux`, `//go:build darwin`, etc.
+- **Conventional Commits** — `feat:`, `fix:`, `docs:`, `refactor:`, `test:`
 
 ## Contributing
 
-Contributions are welcome! Please:
-
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/your-feature`)
-3. Commit changes with clear messages
-4. Push to the branch
-5. Create a Pull Request
-
-## Support
-
-For issues, questions, or discussions:
-
-- **Bug Reports**: [GitHub Issues](https://github.com/security-mcp/mcp-client/issues)
-- **Security Issues**: Email security@example.com (do not use issues)
-- **Discussions**: [GitHub Discussions](https://github.com/security-mcp/mcp-client/discussions)
-
-## Architecture
-
-```
-cmd/mcp/             # CLI entry point
-├── main.go
-
-internal/
-├── config/          # Configuration (YAML, env, flags)
-├── cli/             # Cobra CLI commands
-├── registry/        # Registry API client
-├── manifest/        # Manifest parsing and validation
-├── cache/           # Content-addressable cache
-├── executor/        # Process execution (STDIO, HTTP)
-├── sandbox/         # Platform-specific isolation
-│   ├── sandbox.go
-│   ├── linux.go
-│   ├── darwin.go
-│   └── windows.go
-├── policy/          # Security policy enforcement
-├── audit/           # Audit logging
-└── (other packages)
-```
-
-See [docs/OVERVIEW.md](./docs/OVERVIEW.md) for detailed architecture information.
+Contributions are welcome! Please read [`CONTRIBUTING.md`](./CONTRIBUTING.md) for guidelines and [`CODE_OF_CONDUCT.md`](./CODE_OF_CONDUCT.md) for community standards.
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-## Contributing
-
-We welcome contributions! Please read our [CONTRIBUTING.md](CONTRIBUTING.md) for details on our code of conduct and the process for submitting pull requests.
-
-See also [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) for our community guidelines.
-
-## Acknowledgments
-
-- Built with [Cobra](https://github.com/spf13/cobra) for CLI framework
-- Configuration management with [Viper](https://github.com/spf13/viper)
-- Testing with [Testify](https://github.com/stretchr/testify)
-
-## Project Status
-
-**Current Version**: v1.0.0
-
-**Stability**: Production-ready for STDIO transport. HTTP transport planned for v1.1.
-
-See [CHANGELOG.md](CHANGELOG.md) for version history and [docs/SECURITY.md](docs/SECURITY.md) for security details.
+MIT License — see [`LICENSE`](./LICENSE) for details.
 
 ---
 
-**Made with ❤️ by the MCP community**
+<p align="center">
+  Part of the <a href="https://github.com/security-mcp">MCP Hub Platform</a> — trust infrastructure for MCP servers.
+</p>

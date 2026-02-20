@@ -1,3 +1,25 @@
+# Binaries
 /mcp
+/mcp-linux
+/mcp-windows.exe
+/mcp.exe
+/bin/
+
+# Test artifacts
 coverage.out
 coverage.html
+*.test
+registry.test
+
+# OS files
+.DS_Store
+.DS_Store?
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Build
+dist/
