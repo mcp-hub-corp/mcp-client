@@ -175,14 +175,14 @@ func TestCertLevelPolicyIntegration_RealWorldScenarios(t *testing.T) {
 		description    string
 	}{
 		{
-			name:          "strict_official_only",
+			name:           "strict_official_only",
 			allowedOrigins: []string{"official"},
-			minCertLevel:  2,
-			enforceMode:   StrictMode,
-			testOrigin:    "official",
-			testCertLevel: 2,
-			shouldPass:    true,
-			description:   "Production: only official + certified",
+			minCertLevel:   2,
+			enforceMode:    StrictMode,
+			testOrigin:     "official",
+			testCertLevel:  2,
+			shouldPass:     true,
+			description:    "Production: only official + certified",
 		},
 		{
 			name:           "strict_official_low_cert",
@@ -314,9 +314,9 @@ func TestCertLevelPolicy_VerboseValidation(t *testing.T) {
 // TestCertLevelPolicy_BoundaryConditions tests edge cases
 func TestCertLevelPolicy_BoundaryConditions(t *testing.T) {
 	tests := []struct {
-		name    string
-		minLevel int
-		testLevel int
+		name        string
+		minLevel    int
+		testLevel   int
 		enforceMode string
 		shouldError bool
 	}{

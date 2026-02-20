@@ -55,15 +55,6 @@ func TestLoginWithInvalidToken(t *testing.T) {
 	assert.Contains(t, err.Error(), "invalid token format")
 }
 
-// TestReadInput tests reading input from stdin
-func TestReadInput(t *testing.T) {
-	// Test with normal input
-	// This test would require mocking os.Stdin, so we'll keep it simple
-	// In a real scenario, you might use a testing library like go-mock
-	// For now, we'll just verify the function exists and has correct signature
-	assert.NotNil(t, readInput)
-}
-
 // TestTokenStorage tests token storage operations
 func TestTokenStorage(t *testing.T) {
 	tmpDir := t.TempDir()

@@ -48,9 +48,7 @@ func loginWithToken(logger *slog.Logger, registryURL, token string, tokenStorage
 		return fmt.Errorf("invalid token format: expected JWT token (header.payload.signature)")
 	}
 
-	// Since we're using a token directly, we need to extract expiration from it
-	// For now, we'll set a default expiration (24 hours from now)
-	// In a real scenario, the token would be validated with the registry first
+	// Default 24h expiration; server validates token on each API call
 	expiresAt := time.Now().Add(24 * time.Hour)
 
 	// Store the token

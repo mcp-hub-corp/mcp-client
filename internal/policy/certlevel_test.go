@@ -228,9 +228,9 @@ func TestCertLevelPolicy_IntegrationWithOriginPolicy(t *testing.T) {
 
 func TestCertLevelPolicy_BoundaryValues(t *testing.T) {
 	tests := []struct {
-		name    string
-		minLevel int
-		testLevel int
+		name        string
+		minLevel    int
+		testLevel   int
 		expectError bool
 	}{
 		{"min_0_test_0", 0, 0, false},

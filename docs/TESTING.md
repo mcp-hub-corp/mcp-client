@@ -99,6 +99,41 @@
 - Test actual OS capabilities (rlimits, cgroups, etc.)
 - Skip on other platforms
 
+### Sandbox E2E Tests
+
+**Purpose**: Verify actual process execution under sandbox constraints
+
+**Files**:
+- `internal/sandbox/sandbox_e2e_test.go` - Cross-platform integration tests
+- `internal/sandbox/sandbox_e2e_linux_test.go` - Linux-specific E2E tests
+- `internal/sandbox/sandbox_e2e_darwin_test.go` - macOS-specific E2E tests
+- `internal/sandbox/sandbox_e2e_windows_test.go` - Windows-specific E2E tests
+
+**Test Helper Programs** (`internal/sandbox/testdata/`):
+- `sleep.go` - Sleeps for N seconds (tests timeout)
+- `allocmem.go` - Allocates N MB of memory (tests memory limits)
+- `forkbomb.go` - Spawns N child processes (tests PID limits)
+- `writefiles.go` - Writes to paths (tests filesystem isolation)
+- `network.go` - Makes HTTP requests (tests network isolation)
+- `exitcode.go` - Exits with specified code (tests basic execution)
+
+**How tests work**: Test helpers are compiled at test time with `go build`. They are run directly under the sandbox (no registry or manifest needed). This makes them fast, reliable, and CI-friendly.
+
+**Running sandbox E2E tests**:
+```bash
+# All sandbox tests (including E2E)
+go test -v -race -timeout 300s ./internal/sandbox/...
+
+# Skip integration tests (unit tests only)
+go test -short ./internal/sandbox/...
+```
+
+**CI behavior**:
+- **ubuntu-latest**: cgroups v2 available, namespaces available (non-root), Landlock depends on kernel
+- **macos-latest**: sandbox-exec available, ARM architecture
+- **windows-latest**: Job Objects available, AppContainer may vary by Windows version
+- Tests handle graceful degradation (skip if capability unavailable)
+
 ## Running Tests
 
 ### All Tests
@@ -228,7 +263,13 @@ Tests run automatically on:
 - Every push to `main`
 - Every pull request
 - Multiple platforms: Ubuntu, macOS, Windows
-- Multiple Go versions: 1.21, 1.22
+- Go version: 1.24 (matching go.mod)
+
+**Jobs:**
+- `test`: Unit + integration tests on all platforms
+- `sandbox-test`: Sandbox E2E tests (sandbox, executor, policy) on all platforms
+- `lint`: golangci-lint on Ubuntu
+- `build`: Multi-platform binary builds
 
 ### Local Pre-Commit
 

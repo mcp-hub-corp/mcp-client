@@ -6,8 +6,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
+	"regexp"
+	"strings"
 	"time"
 )
 
@@ -18,14 +22,63 @@ type Client struct {
 	token      string
 }
 
-// NewClient creates a new hub client
-func NewClient(baseURL string) *Client {
+// isLocalhostHub checks if the given host is localhost
+func isLocalhostHub(host string) bool {
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		host = h
+	}
+	host = strings.ToLower(strings.TrimSpace(host))
+	return host == "localhost" || host == "127.0.0.1" || host == "::1" || host == "[::1]"
+}
+
+// isPrivateIPHub checks if a host resolves to a private IP address
+func isPrivateIPHub(host string) bool {
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		host = h
+	}
+	ip := net.ParseIP(host)
+	if ip == nil {
+		ips, err := net.LookupIP(host)
+		if err != nil || len(ips) == 0 {
+			return true // fail closed
+		}
+		ip = ips[0]
+	}
+	return ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast()
+}
+
+// uploadIDPattern validates uploadID format (UUID)
+var uploadIDPattern = regexp.MustCompile(`^[a-fA-F0-9-]{36}$`)
+
+// NewClient creates a new hub client with URL validation
+func NewClient(baseURL string) (*Client, error) {
+	if baseURL == "" {
+		return nil, fmt.Errorf("hub base URL cannot be empty")
+	}
+
+	u, err := url.Parse(baseURL)
+	if err != nil {
+		return nil, fmt.Errorf("invalid hub URL: %w", err)
+	}
+
+	host := u.Hostname()
+
+	// SECURITY: Require HTTPS for non-localhost
+	if u.Scheme != "https" && !isLocalhostHub(host) {
+		return nil, fmt.Errorf("hub URL must use https (got %s)", u.Scheme)
+	}
+
+	// SECURITY: Reject private IPs to prevent SSRF
+	if isPrivateIPHub(host) && !isLocalhostHub(host) {
+		return nil, fmt.Errorf("hub URL cannot be private IP: %s", host)
+	}
+
 	return &Client{
 		baseURL: baseURL,
 		httpClient: &http.Client{
 			Timeout: 5 * time.Minute,
 		},
-	}
+	}, nil
 }
 
 // SetToken sets the authentication token
@@ -79,8 +132,8 @@ func (c *Client) InitUpload(ctx context.Context, req *InitUploadRequest) (*InitU
 	}
 
 	// Create request
-	url := fmt.Sprintf("%s/api/v1/uploads/init", c.baseURL)
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+	endpoint := fmt.Sprintf("%s/api/v1/uploads/init", c.baseURL)
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
@@ -95,7 +148,7 @@ func (c *Client) InitUpload(ctx context.Context, req *InitUploadRequest) (*InitU
 	if err != nil {
 		return nil, fmt.Errorf("failed to send request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	// Read response body
 	respBody, err := io.ReadAll(resp.Body)
@@ -127,9 +180,14 @@ func (c *Client) FinalizeUpload(ctx context.Context, uploadID string) (*Finalize
 		return nil, fmt.Errorf("uploadID cannot be empty")
 	}
 
+	// SECURITY: Validate uploadID format to prevent path injection
+	if !uploadIDPattern.MatchString(uploadID) {
+		return nil, fmt.Errorf("invalid upload ID format: %s", uploadID)
+	}
+
 	// Create request
-	url := fmt.Sprintf("%s/api/v1/uploads/%s/finalize", c.baseURL, uploadID)
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader([]byte("{}")))
+	endpoint := fmt.Sprintf("%s/api/v1/uploads/%s/finalize", c.baseURL, url.PathEscape(uploadID))
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader([]byte("{}")))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
@@ -144,7 +202,7 @@ func (c *Client) FinalizeUpload(ctx context.Context, uploadID string) (*Finalize
 	if err != nil {
 		return nil, fmt.Errorf("failed to send request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	// Read response body
 	respBody, err := io.ReadAll(resp.Body)
@@ -171,7 +229,7 @@ func (c *Client) FinalizeUpload(ctx context.Context, uploadID string) (*Finalize
 }
 
 // UploadFile uploads a file to a presigned URL
-func (c *Client) UploadFile(ctx context.Context, presignedURL string, filePath string, onProgress func(bytesUploaded, totalBytes int64)) error {
+func (c *Client) UploadFile(ctx context.Context, presignedURL, filePath string, onProgress func(bytesUploaded, totalBytes int64)) error {
 	if presignedURL == "" {
 		return fmt.Errorf("presignedURL cannot be empty")
 	}
@@ -191,7 +249,7 @@ func (c *Client) UploadFile(ctx context.Context, presignedURL string, filePath s
 	if err != nil {
 		return fmt.Errorf("failed to open file: %w", err)
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	// Create progress reader if callback provided
 	var reader io.Reader = file
@@ -217,7 +275,7 @@ func (c *Client) UploadFile(ctx context.Context, presignedURL string, filePath s
 	if err != nil {
 		return fmt.Errorf("failed to upload file: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	// Check status code
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {

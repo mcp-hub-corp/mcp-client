@@ -81,7 +81,7 @@ func (b *Bundler) LoadIgnoreFile(ignoreFilePath string) error {
 		}
 		return fmt.Errorf("failed to open ignore file: %w", err)
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	scanner := bufio.NewScanner(file)
 	lineNum := 0
@@ -141,23 +141,20 @@ func (b *Bundler) Create(sourceDir, outputPath string) (*BundleResult, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to create output file: %w", err)
 	}
-	defer outFile.Close()
-
-	// Create gzip writer
-	gzipWriter := gzip.NewWriter(outFile)
-	defer gzipWriter.Close()
-
-	// Create tar writer
-	tarWriter := tar.NewWriter(gzipWriter)
-	defer tarWriter.Close()
+	defer func() { _ = outFile.Close() }()
 
 	// Hash writer for SHA256 calculation
+	// Correct flow: hashWriter + outFile -> multiWriter -> gzipWriter -> tarWriter
 	hashWriter := sha256.New()
 	multiWriter := io.MultiWriter(outFile, hashWriter)
 
 	// Create gzip writer with hash
-	gzipWriter = gzip.NewWriter(multiWriter)
-	tarWriter = tar.NewWriter(gzipWriter)
+	gzipWriter := gzip.NewWriter(multiWriter)
+	defer func() { _ = gzipWriter.Close() }()
+
+	// Create tar writer
+	tarWriter := tar.NewWriter(gzipWriter)
+	defer func() { _ = tarWriter.Close() }()
 
 	// Collect all files to bundle
 	files, err := b.collectFiles(sourceDir)
@@ -177,14 +174,14 @@ func (b *Bundler) Create(sourceDir, outputPath string) (*BundleResult, error) {
 	// Write files to tar archive
 	for _, fileInfo := range files {
 		if fileInfo.IsDir {
-			if err := b.writeDirectory(tarWriter, fileInfo); err != nil {
-				return nil, fmt.Errorf("failed to write directory %s: %w", fileInfo.Path, err)
+			if writeErr := b.writeDirectory(tarWriter, fileInfo); writeErr != nil {
+				return nil, fmt.Errorf("failed to write directory %s: %w", fileInfo.Path, writeErr)
 			}
 			dirCount++
 		} else {
-			n, err := b.writeFile(tarWriter, fileInfo)
-			if err != nil {
-				return nil, fmt.Errorf("failed to write file %s: %w", fileInfo.Path, err)
+			n, writeErr := b.writeFile(tarWriter, fileInfo)
+			if writeErr != nil {
+				return nil, fmt.Errorf("failed to write file %s: %w", fileInfo.Path, writeErr)
 			}
 			fileCount++
 			uncompressedSize += n
@@ -197,12 +194,12 @@ func (b *Bundler) Create(sourceDir, outputPath string) (*BundleResult, error) {
 	}
 
 	// Close writers
-	if err := tarWriter.Close(); err != nil {
-		return nil, fmt.Errorf("failed to close tar writer: %w", err)
+	if closeErr := tarWriter.Close(); closeErr != nil {
+		return nil, fmt.Errorf("failed to close tar writer: %w", closeErr)
 	}
 
-	if err := gzipWriter.Close(); err != nil {
-		return nil, fmt.Errorf("failed to close gzip writer: %w", err)
+	if closeErr := gzipWriter.Close(); closeErr != nil {
+		return nil, fmt.Errorf("failed to close gzip writer: %w", closeErr)
 	}
 
 	// Get file info for sizes
@@ -303,18 +300,18 @@ func (b *Bundler) writeFile(tw *tar.Writer, fileInfo FileInfo) (int64, error) {
 	if err != nil {
 		return 0, fmt.Errorf("failed to open file: %w", err)
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	header := &tar.Header{
-		Name:    fileInfo.Path,
-		Mode:    int64(DefaultFilePerms),
-		Size:    fileInfo.Size,
-		ModTime: normalizedModTime,
+		Name:     fileInfo.Path,
+		Mode:     int64(DefaultFilePerms),
+		Size:     fileInfo.Size,
+		ModTime:  normalizedModTime,
 		Typeflag: tar.TypeReg,
 	}
 
-	if err := tw.WriteHeader(header); err != nil {
-		return 0, fmt.Errorf("failed to write header: %w", err)
+	if headerErr := tw.WriteHeader(header); headerErr != nil {
+		return 0, fmt.Errorf("failed to write header: %w", headerErr)
 	}
 
 	n, err := io.Copy(tw, file)
@@ -405,12 +402,12 @@ func globToRegex(pattern string) (*regexp.Regexp, error) {
 	fullPattern := "^" + regexPattern.String()
 	if strings.HasSuffix(pattern, "/") {
 		// Match the directory itself or anything under it
-		fullPattern = fullPattern + ".*"
+		fullPattern += ".*"
 	} else {
 		// Match the exact pattern or with trailing slash
-		fullPattern = fullPattern + "(/.*)?$"
+		fullPattern += "(/.*)?$"
 	}
-	fullPattern = fullPattern + "$"
+	fullPattern += "$"
 
 	regex, err := regexp.Compile(fullPattern)
 	if err != nil {

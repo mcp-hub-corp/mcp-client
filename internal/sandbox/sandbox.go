@@ -6,13 +6,22 @@ import (
 	"os/exec"
 	"runtime"
 
+	"github.com/security-mcp/mcp-client/internal/manifest"
 	"github.com/security-mcp/mcp-client/internal/policy"
 )
 
 // Sandbox provides resource isolation and limits for MCP processes
 type Sandbox interface {
-	// Apply applies sandbox constraints to a command before execution
-	Apply(cmd *exec.Cmd, limits *policy.ExecutionLimits) error
+	// Apply applies sandbox constraints to a command before execution.
+	// perms may be nil if no manifest permissions are available.
+	Apply(cmd *exec.Cmd, limits *policy.ExecutionLimits, perms *manifest.PermissionsInfo) error
+
+	// PostStart applies post-spawn restrictions that require the child PID
+	// (e.g., cgroups assignment, Windows Job Object assignment).
+	PostStart(pid int, limits *policy.ExecutionLimits) error
+
+	// Cleanup releases sandbox resources for a process (e.g., cgroup dirs, Job Object handles, temp files).
+	Cleanup(pid int) error
 
 	// Capabilities returns what this sandbox can enforce
 	Capabilities() Capabilities
@@ -32,6 +41,9 @@ type Capabilities struct {
 	Cgroups             bool
 	Namespaces          bool
 	SupportsSeccomp     bool
+	SupportsLandlock    bool // Linux 5.13+ Landlock LSM
+	SupportsSandboxExec bool // macOS sandbox-exec (seatbelt)
+	ProcessIsolation    bool // Windows Job Objects functioning
 	RequiresRoot        bool
 	Warnings            []string
 }
@@ -59,8 +71,16 @@ var platformNewSandbox = func() Sandbox {
 // NoOpSandbox is a placeholder sandbox that performs no isolation
 type NoOpSandbox struct{}
 
-func (s *NoOpSandbox) Apply(cmd *exec.Cmd, limits *policy.ExecutionLimits) error {
+func (s *NoOpSandbox) Apply(cmd *exec.Cmd, limits *policy.ExecutionLimits, perms *manifest.PermissionsInfo) error {
 	// No-op: platform doesn't support sandboxing
+	return nil
+}
+
+func (s *NoOpSandbox) PostStart(pid int, limits *policy.ExecutionLimits) error {
+	return nil
+}
+
+func (s *NoOpSandbox) Cleanup(pid int) error {
 	return nil
 }
 
@@ -109,10 +129,16 @@ func Diagnose() DiagnosticInfo {
 			)
 		}
 	case "darwin":
-		info.Warnings = append(info.Warnings,
-			"macOS does not support network isolation without kernel extensions",
-			"macOS does not support cgroups - using rlimits only",
-		)
+		if info.Capabilities.SupportsSandboxExec {
+			info.Warnings = append(info.Warnings,
+				"macOS sandbox-exec available - filesystem and network isolation enabled",
+			)
+		} else {
+			info.Warnings = append(info.Warnings,
+				"macOS sandbox-exec not available - limited isolation",
+				"macOS does not support cgroups - using sandbox-exec or rlimits only",
+			)
+		}
 		info.Recommendations = append(info.Recommendations,
 			"For strict security requirements, consider running in a Linux environment or VM",
 		)

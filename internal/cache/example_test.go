@@ -11,11 +11,14 @@ import (
 // Example of creating and using a cache store
 func ExampleNewStore() {
 	// Create cache in temporary directory
-	tmpDir, _ := os.MkdirTemp("", "mcp-cache-*")
-	defer os.RemoveAll(tmpDir)
+	tmpDir, err := os.MkdirTemp("", "mcp-cache-*")
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	store, err := cache.NewStore(tmpDir)
 	if err != nil {
+		_ = os.RemoveAll(tmpDir)
 		log.Fatal(err)
 	}
 
@@ -25,19 +28,21 @@ func ExampleNewStore() {
 
 	err = store.PutManifest(digest, manifest)
 	if err != nil {
+		_ = os.RemoveAll(tmpDir)
 		log.Fatal(err)
 	}
 
 	// Check if it exists
 	exists := store.Exists(digest, "manifest")
 	fmt.Printf("Manifest cached: %v\n", exists)
+
+	_ = os.RemoveAll(tmpDir)
 	// Output: Manifest cached: true
 }
 
 // Example of checking cache contents
 func ExampleStore_List() {
 	tmpDir, _ := os.MkdirTemp("", "mcp-cache-*")
-	defer os.RemoveAll(tmpDir)
 
 	store, _ := cache.NewStore(tmpDir)
 
@@ -48,5 +53,7 @@ func ExampleStore_List() {
 	// List all
 	artifacts, _ := store.List()
 	fmt.Printf("Cached artifacts: %d\n", len(artifacts))
+
+	_ = os.RemoveAll(tmpDir)
 	// Output: Cached artifacts: 2
 }

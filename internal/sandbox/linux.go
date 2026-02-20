@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 
 	"golang.org/x/sys/unix"
@@ -39,6 +40,7 @@ type LinuxSandbox struct {
 	landlockABI       int    // Landlock ABI version
 	hasSeccomp        bool   // seccomp available on this system
 	cgroupManager     *cgroupManager
+	mu                sync.Mutex
 	pendingLimits     *policy.ExecutionLimits // stored for PostStart prlimit application
 	logger            *slog.Logger
 	trackedCgroups    map[int]string // pid -> cgroup path for cleanup
@@ -224,7 +226,9 @@ func (s *LinuxSandbox) ApplyForPID(pid int, limits *policy.ExecutionLimits) erro
 func (s *LinuxSandbox) PostStart(pid int, limits *policy.ExecutionLimits) error {
 	useLimits := limits
 	if useLimits == nil {
+		s.mu.Lock()
 		useLimits = s.pendingLimits
+		s.mu.Unlock()
 	}
 
 	// Apply rlimits via prlimit(2) on the child process
@@ -251,7 +255,9 @@ func (s *LinuxSandbox) Cleanup(pid int) error {
 // after the child process has started to set rlimits on the child process by PID.
 func (s *LinuxSandbox) applyRLimits(cmd *exec.Cmd, limits *policy.ExecutionLimits) error {
 	// Store limits for PostStart to apply via prlimit(2)
+	s.mu.Lock()
 	s.pendingLimits = limits
+	s.mu.Unlock()
 	s.logger.Debug("rlimits will be applied via prlimit(2) after process starts")
 	return nil
 }
@@ -390,7 +396,9 @@ func (s *LinuxSandbox) applyCgroupsV2(pid int, limits *policy.ExecutionLimits) e
 	}
 
 	// Track for potential cleanup
+	s.mu.Lock()
 	s.trackedCgroups[pid] = cgroupPath
+	s.mu.Unlock()
 
 	// Apply CPU quota (best-effort)
 	if limits.MaxCPU > 0 {
@@ -492,10 +500,14 @@ func (s *LinuxSandbox) Name() string {
 // CleanupCgroup removes the cgroup directory for a process (best-effort)
 // Should be called after process cleanup
 func (s *LinuxSandbox) CleanupCgroup(pid int) error {
+	s.mu.Lock()
 	cgroupPath, exists := s.trackedCgroups[pid]
 	if !exists {
+		s.mu.Unlock()
 		return nil // No cgroup tracked for this PID
 	}
+	delete(s.trackedCgroups, pid)
+	s.mu.Unlock()
 
 	// Attempt removal (best-effort)
 	if err := os.RemoveAll(cgroupPath); err != nil {
@@ -503,7 +515,6 @@ func (s *LinuxSandbox) CleanupCgroup(pid int) error {
 		return nil // Non-critical failure
 	}
 
-	delete(s.trackedCgroups, pid)
 	s.logger.Debug("cgroup cleaned up", slog.String("path", cgroupPath))
 	return nil
 }

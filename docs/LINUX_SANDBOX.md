@@ -406,9 +406,97 @@ cat /proc/<pid>/limits | grep "CPU time"
 # If RLIMIT_CPU is "unlimited", limits were not applied
 ```
 
+## Available Mechanisms Not Yet Implemented
+
+The Linux kernel provides several additional sandboxing mechanisms that mcp-client does not currently use. These are documented here for completeness and to inform the roadmap.
+
+### User Namespaces (`CLONE_NEWUSER`)
+
+**What it provides:** Allows an unprivileged process to create a new user namespace where it has UID 0 (root) _inside_ the namespace, mapped to its unprivileged UID _outside_. This enables creating other namespace types (network, PID, mount) without actual root.
+
+**Impact on mcp-client:** Currently, network namespace creation (`CLONE_NEWNET`) requires `CAP_NET_ADMIN` or root (`linux.go` checks `os.Geteuid() == 0`). With user namespaces, non-root users could get network isolation via:
+```go
+cmd.SysProcAttr = &syscall.SysProcAttr{
+    Cloneflags: syscall.CLONE_NEWUSER | syscall.CLONE_NEWNET,
+    UidMappings: []syscall.SysProcIDMap{{ContainerID: 0, HostID: os.Getuid(), Size: 1}},
+    GidMappings: []syscall.SysProcIDMap{{ContainerID: 0, HostID: os.Getgid(), Size: 1}},
+}
+```
+
+**Requirements:** Kernel support (most modern distros). Some distros restrict via `kernel.unprivileged_userns_clone=0`.
+
+**No root required** (when sysctl allows).
+
+### seccomp-BPF (Secure Computing with BPF Filters)
+
+**What it provides:** Filters system calls at the kernel level. A BPF program inspects each syscall and its arguments, returning allow/deny/kill decisions. Filters persist across `execve()` and are inherited by child processes.
+
+**Impact on mcp-client:**
+- Block `fork()`/`clone()`/`execve()` for manifests declaring `subprocess: false`
+- Block dangerous syscalls (`ptrace`, `mount`, `reboot`, `kexec_load`)
+- Enforce fine-grained access control on syscall arguments
+
+**Current state:** `Capabilities()` reports `SupportsSeccomp: true` (linux.go:343) but **no code implements seccomp filtering**. This is a false positive.
+
+**Requirements:** `PR_SET_NO_NEW_PRIVS` must be set before installing the filter (prevents privilege escalation). After that, the filter is locked in and cannot be relaxed.
+
+**No root required.**
+
+### Landlock LSM (Linux 5.13+)
+
+**What it provides:** Unprivileged filesystem sandboxing. A process can restrict its own filesystem access to a set of allowed paths. The restrictions cannot be relaxed after application.
+
+**API:**
+```c
+int ruleset_fd = landlock_create_ruleset(&ruleset_attr, size, 0);
+landlock_add_rule(ruleset_fd, LANDLOCK_RULE_PATH_BENEATH, &path_rule, 0);
+landlock_restrict_self(ruleset_fd, 0);
+```
+
+**ABI versions:**
+- v1 (5.13): Filesystem access control (read, write, execute, etc.)
+- v2 (5.19): File refer/reparent rules
+- v3 (6.2): File truncation rules
+- v4 (6.7): **TCP bind and connect restrictions** (network sandboxing!)
+
+**Impact on mcp-client:** Provides filesystem isolation without root (alternative to mount namespaces). With ABI v4, also provides network restrictions without root.
+
+**No root required.**
+
+### PID Namespace (`CLONE_NEWPID`)
+
+**What it provides:** The child process becomes PID 1 in a new PID namespace. It can only see processes within its namespace. When PID 1 exits, all processes in the namespace are killed by the kernel.
+
+**Impact on mcp-client:**
+- Process tree isolation: MCP server cannot see or signal other processes
+- Guaranteed cleanup: if PID 1 (the MCP server) dies, all its children are killed automatically
+- Fork bomb mitigation: combined with `pids.max` cgroup, provides robust process count control
+
+**Requirements:** Typically requires `CAP_SYS_ADMIN` or user namespaces. With `CLONE_NEWUSER | CLONE_NEWPID`, no root required.
+
+### pivot_root Inside User Namespace
+
+**What it provides:** `pivot_root()` changes the root filesystem of the calling process. Inside a user namespace with a mount namespace, this provides strong filesystem isolation without real root:
+
+1. Create user namespace (get "fake root")
+2. Create mount namespace
+3. Bind-mount allowed directories into a new root
+4. `pivot_root()` to the new root
+5. Unmount old root
+
+**Impact on mcp-client:** Stronger filesystem isolation than mount namespace alone. The MCP server literally cannot see the host filesystem outside the allowed paths.
+
+**No real root required** (user namespace provides capabilities within the namespace).
+
+---
+
 ## References
 
 - Linux man pages: `man setrlimit`, `man 2 clone`, `man cgroups`
 - cgroups v2 documentation: https://www.kernel.org/doc/html/latest/admin-guide/cgroup-v2.html
 - kernel.org namespaces documentation: https://man7.org/linux/man-pages/man7/namespaces.7.html
 - Security best practices: https://wiki.debian.org/SecureComputing
+- seccomp-BPF: `man 2 seccomp`, https://www.kernel.org/doc/html/latest/userspace-api/seccomp_filter.html
+- Landlock LSM: https://docs.kernel.org/userspace-api/landlock.html
+- User namespaces: `man 7 user_namespaces`
+- PID namespaces: `man 7 pid_namespaces`

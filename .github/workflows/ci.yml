@@ -16,7 +16,7 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
-        go: ['1.21', '1.22']
+        go: ['1.24']
     steps:
     - uses: actions/checkout@v4
 
@@ -41,7 +41,7 @@ jobs:
 
     - name: Upload coverage
       uses: codecov/codecov-action@v4
-      if: matrix.os == 'ubuntu-latest' && matrix.go == '1.22'
+      if: matrix.os == 'ubuntu-latest' && matrix.go == '1.24'
       with:
         files: ./coverage.out
         flags: unittests
@@ -55,13 +55,36 @@ jobs:
     - name: Set up Go
       uses: actions/setup-go@v5
       with:
-        go-version: '1.22'
+        go-version: '1.24'
 
     - name: golangci-lint
       uses: golangci/golangci-lint-action@v4
       with:
         version: latest
         args: --timeout=5m
+
+  sandbox-test:
+    name: Sandbox E2E
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.24'
+
+    - name: Run sandbox tests
+      run: go test -v -race -timeout 300s ./internal/sandbox/...
+
+    - name: Run executor tests
+      run: go test -v -race -timeout 300s ./internal/executor/...
+
+    - name: Run policy tests
+      run: go test -v -race -timeout 300s ./internal/policy/...
 
   build:
     name: Build
@@ -75,7 +98,7 @@ jobs:
     - name: Set up Go
       uses: actions/setup-go@v5
       with:
-        go-version: '1.22'
+        go-version: '1.24'
 
     - name: Build
       run: go build -v ./cmd/mcp

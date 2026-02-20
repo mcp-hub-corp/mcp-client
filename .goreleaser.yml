@@ -37,7 +37,8 @@ archives:
     files:
       - LICENSE
       - README.md
-      - docs/*
+      - docs/*.md
+      - docs/*.yaml
 
 checksum:
   name_template: 'checksums.txt'

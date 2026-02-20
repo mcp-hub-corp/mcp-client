@@ -7,8 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **2026-02-20**: Fixed cross-platform test compilation:
+  - `sandbox_e2e_test.go` referenced `DarwinSandbox` type without build tag, breaking Linux builds
+  - Replaced concrete type assertion with `Capabilities().SupportsSandboxExec` interface check
+- **2026-02-20**: Fixed data race in `LinuxSandbox`:
+  - `pendingLimits` and `trackedCgroups` accessed without synchronization in concurrent usage
+  - Added `sync.Mutex` to protect shared state in `applyRLimits`, `PostStart`, and `CleanupCgroup`
+
 ### Changed
 
+- **2026-02-20**: Code cleanup for open source readiness:
+  - Fixed placeholder email in CONTRIBUTING.md (security@mcp-hub.info)
+  - Fixed hardcoded User-Agent in pull.go (uses Version variable via ldflags)
+  - Fixed stale TODO comment in login.go
+  - Fixed Go version in release.yml (1.22 → 1.24)
+  - Fixed goreleaser to exclude docs/internal/ from releases
+  - Removed empty TestReadInput test in login_test.go
+  - Removed internal CLIENT-CRIT-XXX IDs from public security docs
+  - Merged 3 init() functions into 1 in root.go
+  - Cleaned personal filesystem paths in docs/internal/
+- **2026-02-20**: Eliminated all lint warnings (~60 fixes across 15 files):
+  - Fixed errcheck: proper deferred Close() patterns with explicit error discard
+  - Fixed govet/shadow: renamed inner `:=` variables to avoid shadowing
+  - Fixed gocritic: append merging, octal literals, filepath.Join, exitAfterDefer
+  - Fixed gofmt: whitespace formatting
+  - Fixed unparam: nolint directives for intentionally uniform helper signatures
 - **2026-02-20**: Rewritten README.md for open-source release with professional structure, comparison table vs uvx/npx, security model documentation, and architecture diagram
 - **2026-02-20**: Moved 10 internal development docs to docs/internal/ to clean up repository root
 - **2026-02-20**: Updated .gitignore to exclude binaries, test artifacts, OS/IDE files

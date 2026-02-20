@@ -81,8 +81,8 @@ func BenchmarkFullManifestWorkflow(b *testing.B) {
 		if err != nil {
 			b.Fatal(err)
 		}
-		if err := Validate(manifest); err != nil {
-			b.Fatal(err)
+		if validateErr := Validate(manifest); validateErr != nil {
+			b.Fatal(validateErr)
 		}
 		_, err = SelectEntrypoint(manifest)
 		if err != nil {

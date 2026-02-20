@@ -5,6 +5,8 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strings"
 	"sync"
 	"time"
 )
@@ -205,8 +207,14 @@ func (s *Store) Size() (int64, error) {
 
 // putArtifact stores an artifact with atomic write semantics using temp file + rename
 func (s *Store) putArtifact(digest string, data []byte, dir string) error {
+	// Validate digest format before using as path
+	safeDigest, err := sanitizeDigest(digest)
+	if err != nil {
+		return fmt.Errorf("invalid digest for cache storage: %w", err)
+	}
+
 	artifactDir := filepath.Join(s.baseDir, dir)
-	targetPath := filepath.Join(artifactDir, digest)
+	targetPath := filepath.Join(artifactDir, safeDigest)
 
 	// Create temp file in the same directory to ensure atomic rename
 	tempFile, err := os.CreateTemp(artifactDir, "tmp-*")
@@ -249,14 +257,39 @@ func (s *Store) putArtifact(digest string, data []byte, dir string) error {
 	return nil
 }
 
+// digestPattern validates digest format: sha256:<64 hex chars>
+var digestPattern = regexp.MustCompile(`^sha256:[a-f0-9]{64}$`)
+
+// sanitizeDigest validates and sanitizes a digest for use as a filename
+func sanitizeDigest(digest string) (string, error) {
+	if !digestPattern.MatchString(digest) {
+		return "", fmt.Errorf("invalid digest format: %s", digest)
+	}
+	// Reject any path separators
+	if strings.ContainsAny(digest, "/\\") {
+		return "", fmt.Errorf("digest contains path separators: %s", digest)
+	}
+	// Replace : with - for safe filename
+	return strings.ReplaceAll(digest, ":", "-"), nil
+}
+
 // manifestPath returns the cache path for a manifest digest
 func (s *Store) manifestPath(digest string) string {
-	return filepath.Join(s.baseDir, "manifests", digest)
+	safe, err := sanitizeDigest(digest)
+	if err != nil {
+		// Fallback to replacing colon (caller should validate beforehand)
+		safe = strings.ReplaceAll(digest, ":", "-")
+	}
+	return filepath.Join(s.baseDir, "manifests", safe)
 }
 
 // bundlePath returns the cache path for a bundle digest
 func (s *Store) bundlePath(digest string) string {
-	return filepath.Join(s.baseDir, "bundles", digest)
+	safe, err := sanitizeDigest(digest)
+	if err != nil {
+		safe = strings.ReplaceAll(digest, ":", "-")
+	}
+	return filepath.Join(s.baseDir, "bundles", safe)
 }
 
 // listArtifacts lists all artifacts in a directory

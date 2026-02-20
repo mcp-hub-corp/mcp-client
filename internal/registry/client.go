@@ -60,8 +60,8 @@ func isPrivateIP(host string) bool {
 		// Try to resolve the hostname
 		ips, err := net.LookupIP(host)
 		if err != nil || len(ips) == 0 {
-			// If we can't resolve, reject to be safe
-			return false
+			// SECURITY: Fail closed - unresolvable hosts are treated as suspicious
+			return true
 		}
 		ip = ips[0]
 	}
@@ -289,7 +289,8 @@ func (c *Client) DownloadBundle(ctx context.Context, org, digest string) ([]byte
 
 // downloadArtifact downloads an artifact with retry logic
 func (c *Client) downloadArtifact(ctx context.Context, org, digest, artifactType string, maxSize int64) ([]byte, error) {
-	path := fmt.Sprintf("/v1/org/%s/artifacts/%s/%s", url.QueryEscape(org), url.QueryEscape(digest), artifactType)
+	// Use PathEscape for path segments - it doesn't escape colons which are valid in sha256:xxx digests
+	path := fmt.Sprintf("/v1/org/%s/artifacts/%s/%s", url.PathEscape(org), url.PathEscape(digest), artifactType)
 	endpoint := c.baseURL + path
 
 	c.logger.Debug("downloading artifact", slog.String("type", artifactType), slog.String("digest", digest))

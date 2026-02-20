@@ -51,15 +51,16 @@ func init() {
 	pushCmd.Flags().BoolVar(&pushFlags.dryRun, "dry-run", false, "Validate and package without uploading")
 	pushCmd.Flags().BoolVarP(&pushFlags.verbose, "verbose", "v", false, "Verbose output")
 
-	rootCmd.AddCommand(pushCmd)
+	//nolint:gocritic // Intentionally disabled: push command not in use currently
+	// rootCmd.AddCommand(pushCmd)
 }
 
 // runPush executes the push command
 func runPush(cmd *cobra.Command, args []string) error {
 	ctx := context.Background()
 
-	// Parse package reference: org/name@version
-	org, name, version, err := parsePackageRef(args[0])
+	// Parse package reference: org/name@version (push only supports standard format)
+	org, name, version, _, err := parsePackageRef(args[0])
 	if err != nil {
 		return fmt.Errorf("invalid package reference: %w", err)
 	}
@@ -70,8 +71,8 @@ func runPush(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to resolve source directory: %w", err)
 	}
 
-	if _, err := os.Stat(sourceDir); err != nil {
-		return fmt.Errorf("source directory does not exist: %w", err)
+	if _, statErr := os.Stat(sourceDir); statErr != nil {
+		return fmt.Errorf("source directory does not exist: %w", statErr)
 	}
 
 	fmt.Printf("📦 Packaging %s/%s@%s\n", org, name, version)
@@ -107,7 +108,7 @@ func runPush(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("failed to create temp directory: %w", err)
 	}
-	defer os.RemoveAll(tempDir)
+	defer func() { _ = os.RemoveAll(tempDir) }()
 
 	bundlePath := filepath.Join(tempDir, "bundle.tar.gz")
 
@@ -116,9 +117,9 @@ func runPush(cmd *cobra.Command, args []string) error {
 
 	// Load .mcpignore if it exists
 	ignoreFile := filepath.Join(sourceDir, ".mcpignore")
-	if _, err := os.Stat(ignoreFile); err == nil {
-		if err := bundler.LoadIgnoreFile(ignoreFile); err != nil {
-			return fmt.Errorf("failed to load .mcpignore: %w", err)
+	if _, ignoreStatErr := os.Stat(ignoreFile); ignoreStatErr == nil {
+		if loadErr := bundler.LoadIgnoreFile(ignoreFile); loadErr != nil {
+			return fmt.Errorf("failed to load .mcpignore: %w", loadErr)
 		}
 		if pushFlags.verbose {
 			fmt.Println("  ✓ Loaded .mcpignore")
@@ -145,14 +146,14 @@ func runPush(cmd *cobra.Command, args []string) error {
 	manifestObj.Bundle.SizeBytes = bundleResult.CompressedSize
 
 	// Validate manifest
-	if err := manifest.Validate(manifestObj); err != nil {
-		return fmt.Errorf("manifest validation failed: %w", err)
+	if validateErr := manifest.Validate(manifestObj); validateErr != nil {
+		return fmt.Errorf("manifest validation failed: %w", validateErr)
 	}
 
 	// Save manifest to temp file
 	manifestPath := filepath.Join(tempDir, "manifest.json")
-	if err := manifest.SaveManifest(manifestObj, manifestPath); err != nil {
-		return fmt.Errorf("failed to save manifest: %w", err)
+	if saveErr := manifest.SaveManifest(manifestObj, manifestPath); saveErr != nil {
+		return fmt.Errorf("failed to save manifest: %w", saveErr)
 	}
 
 	// Calculate manifest digest
@@ -204,7 +205,10 @@ func runPush(cmd *cobra.Command, args []string) error {
 	}
 
 	// Create hub client
-	hubClient := hub.NewClient(hubURL)
+	hubClient, hubErr := hub.NewClient(hubURL)
+	if hubErr != nil {
+		return fmt.Errorf("failed to create hub client: %w", hubErr)
+	}
 	hubClient.SetToken(token)
 
 	// Initialize upload
@@ -286,14 +290,13 @@ func runPush(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-
 // calculateFileDigest calculates the SHA256 digest of a file
 func calculateFileDigest(filePath string) (string, error) {
 	file, err := os.Open(filePath)
 	if err != nil {
 		return "", fmt.Errorf("failed to open file: %w", err)
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	hash := sha256.New()
 	if _, err := io.Copy(hash, file); err != nil {

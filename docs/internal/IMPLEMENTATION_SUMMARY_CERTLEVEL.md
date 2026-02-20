@@ -12,7 +12,7 @@ Successfully implemented enforcement of certification level (0-3) policies in mc
 
 ### 1. New Policy Type: CertLevelPolicy
 
-**File:** `/Users/cr0hn/Dropbox/Projects/mcp-hub-platform/mcp-client/internal/policy/certlevel.go`
+**File:** `internal/policy/certlevel.go`
 
 Features:
 - Minimum certification level (0-3) configuration
@@ -26,7 +26,7 @@ Features:
 
 ### 2. Configuration Updates
 
-**File:** `/Users/cr0hn/Dropbox/Projects/mcp-hub-platform/mcp-client/internal/config/config.go`
+**File:** `internal/config/config.go`
 
 Added to `PolicyConfig` struct:
 ```go
@@ -41,14 +41,14 @@ Default values:
 
 ### 3. Policy Integration
 
-**File:** `/Users/cr0hn/Dropbox/Projects/mcp-hub-platform/mcp-client/internal/policy/policy.go`
+**File:** `internal/policy/policy.go`
 
 - Added `CertLevelPolicy` field to main `Policy` struct
 - Automatically instantiated from config in `NewPolicy()` and `NewPolicyWithLogger()`
 
 ### 4. Runtime Validation
 
-**File:** `/Users/cr0hn/Dropbox/Projects/mcp-hub-platform/mcp-client/internal/cli/run.go`
+**File:** `internal/cli/run.go`
 
 Added validation after registry resolve:
 ```go
@@ -239,17 +239,17 @@ Result: Only official MCPs with runtime certification
 ## Files Modified/Created
 
 ### Modified
-- `/Users/cr0hn/Dropbox/Projects/mcp-hub-platform/mcp-client/internal/config/config.go`
-- `/Users/cr0hn/Dropbox/Projects/mcp-hub-platform/mcp-client/internal/policy/policy.go`
-- `/Users/cr0hn/Dropbox/Projects/mcp-hub-platform/mcp-client/internal/policy/policy_test.go`
-- `/Users/cr0hn/Dropbox/Projects/mcp-hub-platform/mcp-client/internal/cli/run.go`
+- `internal/config/config.go`
+- `internal/policy/policy.go`
+- `internal/policy/policy_test.go`
+- `internal/cli/run.go`
 
 ### Created
-- `/Users/cr0hn/Dropbox/Projects/mcp-hub-platform/mcp-client/internal/policy/certlevel.go` (219 lines)
-- `/Users/cr0hn/Dropbox/Projects/mcp-hub-platform/mcp-client/internal/policy/certlevel_test.go` (390 lines)
-- `/Users/cr0hn/Dropbox/Projects/mcp-hub-platform/mcp-client/internal/policy/integration_test.go` (334 lines)
-- `/Users/cr0hn/Dropbox/Projects/mcp-hub-platform/mcp-client/docs/CERT_LEVEL_POLICY.md` (comprehensive guide)
-- `/Users/cr0hn/Dropbox/Projects/mcp-hub-platform/mcp-client/examples/config-certlevel.yaml` (example configs)
+- `internal/policy/certlevel.go` (219 lines)
+- `internal/policy/certlevel_test.go` (390 lines)
+- `internal/policy/integration_test.go` (334 lines)
+- `docs/CERT_LEVEL_POLICY.md` (comprehensive guide)
+- `examples/config-certlevel.yaml` (example configs)
 
 ## Key Design Decisions
 

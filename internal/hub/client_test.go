@@ -1,6 +1,7 @@
 package hub
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"io"
@@ -89,7 +90,10 @@ func TestInitUpload(t *testing.T) {
 			defer server.Close()
 
 			// Create client
-			client := NewClient(server.URL)
+			client, cErr := NewClient(server.URL)
+			if cErr != nil {
+				t.Fatalf("failed to create client: %v", cErr)
+			}
 
 			// Call InitUpload
 			resp, err := client.InitUpload(context.Background(), tt.req)
@@ -128,7 +132,7 @@ func TestFinalizeUpload(t *testing.T) {
 	}{
 		{
 			name:           "successful finalize",
-			uploadID:       "upload-123",
+			uploadID:       "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
 			serverResponse: http.StatusOK,
 			serverBody: FinalizeUploadResponse{
 				VersionID: "version-456",
@@ -145,7 +149,7 @@ func TestFinalizeUpload(t *testing.T) {
 		},
 		{
 			name:           "not found",
-			uploadID:       "upload-999",
+			uploadID:       "b2c3d4e5-f6a7-8901-bcde-f12345678901",
 			serverResponse: http.StatusNotFound,
 			serverBody: ErrorResponse{
 				Error:   "upload_not_found",
@@ -174,7 +178,10 @@ func TestFinalizeUpload(t *testing.T) {
 			defer server.Close()
 
 			// Create client
-			client := NewClient(server.URL)
+			client, cErr := NewClient(server.URL)
+			if cErr != nil {
+				t.Fatalf("failed to create client: %v", cErr)
+			}
 
 			// Call FinalizeUpload
 			resp, err := client.FinalizeUpload(context.Background(), tt.uploadID)
@@ -207,7 +214,7 @@ func TestUploadFile(t *testing.T) {
 	tempDir := t.TempDir()
 	testFile := filepath.Join(tempDir, "test.txt")
 	testContent := []byte("hello world")
-	if err := os.WriteFile(testFile, testContent, 0644); err != nil {
+	if err := os.WriteFile(testFile, testContent, 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -227,11 +234,11 @@ func TestUploadFile(t *testing.T) {
 			wantErr:        false,
 		},
 		{
-			name:        "empty presigned URL",
-			filePath:    testFile,
+			name:         "empty presigned URL",
+			filePath:     testFile,
 			presignedURL: "",
-			wantErr:     true,
-			errContains: "cannot be empty",
+			wantErr:      true,
+			errContains:  "cannot be empty",
 		},
 		{
 			name:         "file not found",
@@ -266,7 +273,7 @@ func TestUploadFile(t *testing.T) {
 				}
 
 				// Verify content
-				if tt.serverResponse == http.StatusOK && string(body) != string(testContent) {
+				if tt.serverResponse == http.StatusOK && !bytes.Equal(body, testContent) {
 					t.Errorf("expected body %q, got %q", testContent, body)
 				}
 
@@ -281,7 +288,10 @@ func TestUploadFile(t *testing.T) {
 			}
 
 			// Create client
-			client := NewClient("http://hub.example.com")
+			client, cErr := NewClient("http://localhost:8080")
+			if cErr != nil {
+				t.Fatalf("failed to create client: %v", cErr)
+			}
 
 			// Track progress
 			var progressCalled bool

@@ -22,7 +22,7 @@ func TestBundlerExample(t *testing.T) {
 		}
 	}`), 0o644)
 	os.WriteFile(filepath.Join(sourceDir, "README.md"), []byte("# My MCP"), 0o644)
-	os.WriteFile(filepath.Join(sourceDir, "bin/mcp-server"), []byte("#!/bin/bash"), 0o755)
+	os.WriteFile(filepath.Join(sourceDir, "bin", "mcp-server"), []byte("#!/bin/bash"), 0o755)
 
 	// Create bundle
 	bundler := NewBundler()

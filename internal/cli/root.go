@@ -76,6 +76,13 @@ func init() {
 	rootCmd.AddCommand(infoCmd)
 	rootCmd.AddCommand(cacheCmd)
 	rootCmd.AddCommand(doctorCmd)
+
+	// Cache subcommands
+	cacheCmd.AddCommand(cacheLsCmd)
+	cacheCmd.AddCommand(cacheRmCmd)
+
+	// Doctor flags
+	doctorCmd.Flags().BoolVar(&doctorFlags.jsonOutput, "json", false, "Output in JSON format")
 }
 
 // loginCmd handles authentication with the registry
@@ -142,11 +149,6 @@ var cacheRmCmd = &cobra.Command{
 	Long:  `Remove an artifact from the local cache by digest, or use --all to clear the entire cache.`,
 }
 
-func init() {
-	cacheCmd.AddCommand(cacheLsCmd)
-	cacheCmd.AddCommand(cacheRmCmd)
-}
-
 // doctorCmd diagnoses system capabilities
 var doctorCmd = &cobra.Command{
 	Use:   "doctor",
@@ -159,8 +161,4 @@ var doctorCmd = &cobra.Command{
 
 var doctorFlags struct {
 	jsonOutput bool
-}
-
-func init() {
-	doctorCmd.Flags().BoolVar(&doctorFlags.jsonOutput, "json", false, "Output in JSON format")
 }

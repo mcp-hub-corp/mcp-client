@@ -38,8 +38,8 @@ func runInfo(cmd *cobra.Command, args []string) error {
 
 	ref := args[0]
 
-	// Parse package reference (org/name@version)
-	org, name, version, err := parsePackageRef(ref)
+	// Parse package reference (org/name@version, hub URL, or registry reference)
+	org, name, version, refRegistryURL, err := parsePackageRef(ref)
 	if err != nil {
 		return fmt.Errorf("invalid package reference %q: %w", ref, err)
 	}
@@ -47,12 +47,25 @@ func runInfo(cmd *cobra.Command, args []string) error {
 	// Create logger
 	logger := createLogger(cfg.LogLevel)
 
+	// Use registry URL from the reference if provided, otherwise use config
+	effectiveRegistryURL := cfg.RegistryURL
+	if refRegistryURL != "" {
+		effectiveRegistryURL = refRegistryURL
+	}
+
 	// Create registry client
-	registryClient, err := registry.NewClient(cfg.RegistryURL)
+	registryClient, err := registry.NewClient(effectiveRegistryURL)
 	if err != nil {
 		return fmt.Errorf("failed to create registry client: %w", err)
 	}
 	registryClient.SetLogger(logger)
+
+	// Load stored authentication token
+	tokenStorage := registry.NewTokenStorage(cfg.CacheDir)
+	if token, loadErr := tokenStorage.Load(); loadErr == nil && token != nil && !token.IsExpired() {
+		registryClient.SetToken(token.AccessToken)
+		logger.Debug("loaded stored authentication token")
+	}
 
 	// Create cache store
 	cacheStore, err := cache.NewStore(cfg.CacheDir)

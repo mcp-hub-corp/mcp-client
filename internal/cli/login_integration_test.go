@@ -67,7 +67,7 @@ func TestLoginIntegrationTokenStorage(t *testing.T) {
 	require.NoError(t, err)
 	assert.Nil(t, loadedToken)
 
-	logger.Info("integration test passed", )
+	logger.Info("integration test passed")
 }
 
 // TestLoginWithTokenFlag tests login with token flag

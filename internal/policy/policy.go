@@ -12,14 +12,14 @@ import (
 
 // Policy represents local security policy and execution limits
 type Policy struct {
-	MaxCPU           int           // millicores
-	MaxMemory        string        // e.g. "512M"
-	MaxPIDs          int           // max process count
-	MaxFDs           int           // max file descriptors
-	DefaultTimeout   time.Duration // default execution timeout
-	AllowSubprocess  bool          // allow subprocess creation
-	NetworkAllowlist []string      // allowed domains/IPs
-	EnvAllowlist     []string      // allowed env vars (if empty, all allowed)
+	MaxCPU           int              // millicores
+	MaxMemory        string           // e.g. "512M"
+	MaxPIDs          int              // max process count
+	MaxFDs           int              // max file descriptors
+	DefaultTimeout   time.Duration    // default execution timeout
+	AllowSubprocess  bool             // allow subprocess creation
+	NetworkAllowlist []string         // allowed domains/IPs
+	EnvAllowlist     []string         // allowed env vars (if empty, all allowed)
 	CertLevelPolicy  *CertLevelPolicy // certification level policy
 	logger           *slog.Logger
 }

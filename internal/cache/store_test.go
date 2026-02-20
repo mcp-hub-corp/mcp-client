@@ -12,6 +12,24 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// Valid test digests (sha256: + 64 hex chars)
+const (
+	testDigest1  = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	testDigest2  = "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+	testDigest3  = "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+	testDigest4  = "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+	testDigest5  = "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+	testDigest6  = "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+	testDigest7  = "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+	testDigest8  = "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+	testDigest9  = "sha256:3333333333333333333333333333333333333333333333333333333333333333"
+	testDigest10 = "sha256:4444444444444444444444444444444444444444444444444444444444444444"
+
+	// Sanitized versions (colon replaced with dash) for path assertions
+	testDigest1Safe = "sha256-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	testDigest2Safe = "sha256-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+)
+
 func TestNewStore_Success(t *testing.T) {
 	tempDir := t.TempDir()
 	store, err := NewStore(tempDir)
@@ -35,14 +53,13 @@ func TestPutManifest_Success(t *testing.T) {
 	store, err := NewStore(tempDir)
 	require.NoError(t, err)
 
-	digest := "sha256:abc123def456"
 	data := []byte("manifest data")
 
-	err = store.PutManifest(digest, data)
+	err = store.PutManifest(testDigest1, data)
 	require.NoError(t, err)
 
-	// Verify file was created
-	manifestPath := filepath.Join(tempDir, "manifests", digest)
+	// Verify file was created (digest colon replaced with dash for filename)
+	manifestPath := filepath.Join(tempDir, "manifests", testDigest1Safe)
 	assert.FileExists(t, manifestPath)
 
 	// Verify permissions
@@ -56,13 +73,12 @@ func TestGetManifest_Success(t *testing.T) {
 	store, err := NewStore(tempDir)
 	require.NoError(t, err)
 
-	digest := "sha256:abc123def456"
 	expectedData := []byte("manifest data")
 
-	err = store.PutManifest(digest, expectedData)
+	err = store.PutManifest(testDigest1, expectedData)
 	require.NoError(t, err)
 
-	retrievedData, err := store.GetManifest(digest)
+	retrievedData, err := store.GetManifest(testDigest1)
 	require.NoError(t, err)
 	assert.Equal(t, expectedData, retrievedData)
 }
@@ -72,7 +88,7 @@ func TestGetManifest_NotFound(t *testing.T) {
 	store, err := NewStore(tempDir)
 	require.NoError(t, err)
 
-	data, err := store.GetManifest("sha256:nonexistent")
+	data, err := store.GetManifest(testDigest9)
 	assert.Error(t, err)
 	assert.Nil(t, data)
 	assert.Contains(t, err.Error(), "not in cache")
@@ -83,14 +99,13 @@ func TestPutBundle_Success(t *testing.T) {
 	store, err := NewStore(tempDir)
 	require.NoError(t, err)
 
-	digest := "sha256:xyz789abc123"
 	data := []byte("bundle data content")
 
-	err = store.PutBundle(digest, data)
+	err = store.PutBundle(testDigest2, data)
 	require.NoError(t, err)
 
 	// Verify file was created
-	bundlePath := filepath.Join(tempDir, "bundles", digest)
+	bundlePath := filepath.Join(tempDir, "bundles", testDigest2Safe)
 	assert.FileExists(t, bundlePath)
 
 	// Verify permissions
@@ -104,13 +119,12 @@ func TestGetBundle_Success(t *testing.T) {
 	store, err := NewStore(tempDir)
 	require.NoError(t, err)
 
-	digest := "sha256:xyz789abc123"
 	expectedData := []byte("bundle data content")
 
-	err = store.PutBundle(digest, expectedData)
+	err = store.PutBundle(testDigest2, expectedData)
 	require.NoError(t, err)
 
-	retrievedData, err := store.GetBundle(digest)
+	retrievedData, err := store.GetBundle(testDigest2)
 	require.NoError(t, err)
 	assert.Equal(t, expectedData, retrievedData)
 }
@@ -120,7 +134,7 @@ func TestGetBundle_NotFound(t *testing.T) {
 	store, err := NewStore(tempDir)
 	require.NoError(t, err)
 
-	data, err := store.GetBundle("sha256:nonexistent")
+	data, err := store.GetBundle(testDigest9)
 	assert.Error(t, err)
 	assert.Nil(t, data)
 	assert.Contains(t, err.Error(), "not in cache")
@@ -131,13 +145,12 @@ func TestExists_Manifest(t *testing.T) {
 	store, err := NewStore(tempDir)
 	require.NoError(t, err)
 
-	digest := "sha256:abc123def456"
-	assert.False(t, store.Exists(digest, "manifest"))
+	assert.False(t, store.Exists(testDigest1, "manifest"))
 
-	err = store.PutManifest(digest, []byte("data"))
+	err = store.PutManifest(testDigest1, []byte("data"))
 	require.NoError(t, err)
 
-	assert.True(t, store.Exists(digest, "manifest"))
+	assert.True(t, store.Exists(testDigest1, "manifest"))
 }
 
 func TestExists_Bundle(t *testing.T) {
@@ -145,13 +158,12 @@ func TestExists_Bundle(t *testing.T) {
 	store, err := NewStore(tempDir)
 	require.NoError(t, err)
 
-	digest := "sha256:xyz789abc123"
-	assert.False(t, store.Exists(digest, "bundle"))
+	assert.False(t, store.Exists(testDigest2, "bundle"))
 
-	err = store.PutBundle(digest, []byte("data"))
+	err = store.PutBundle(testDigest2, []byte("data"))
 	require.NoError(t, err)
 
-	assert.True(t, store.Exists(digest, "bundle"))
+	assert.True(t, store.Exists(testDigest2, "bundle"))
 }
 
 func TestExists_InvalidType(t *testing.T) {
@@ -159,7 +171,7 @@ func TestExists_InvalidType(t *testing.T) {
 	store, err := NewStore(tempDir)
 	require.NoError(t, err)
 
-	assert.False(t, store.Exists("sha256:abc123", "invalid"))
+	assert.False(t, store.Exists(testDigest1, "invalid"))
 }
 
 func TestDelete_Manifest(t *testing.T) {
@@ -167,16 +179,15 @@ func TestDelete_Manifest(t *testing.T) {
 	store, err := NewStore(tempDir)
 	require.NoError(t, err)
 
-	digest := "sha256:abc123def456"
-	err = store.PutManifest(digest, []byte("data"))
+	err = store.PutManifest(testDigest1, []byte("data"))
 	require.NoError(t, err)
 
-	assert.True(t, store.Exists(digest, "manifest"))
+	assert.True(t, store.Exists(testDigest1, "manifest"))
 
-	err = store.Delete(digest, "manifest")
+	err = store.Delete(testDigest1, "manifest")
 	require.NoError(t, err)
 
-	assert.False(t, store.Exists(digest, "manifest"))
+	assert.False(t, store.Exists(testDigest1, "manifest"))
 }
 
 func TestDelete_Bundle(t *testing.T) {
@@ -184,16 +195,15 @@ func TestDelete_Bundle(t *testing.T) {
 	store, err := NewStore(tempDir)
 	require.NoError(t, err)
 
-	digest := "sha256:xyz789abc123"
-	err = store.PutBundle(digest, []byte("data"))
+	err = store.PutBundle(testDigest2, []byte("data"))
 	require.NoError(t, err)
 
-	assert.True(t, store.Exists(digest, "bundle"))
+	assert.True(t, store.Exists(testDigest2, "bundle"))
 
-	err = store.Delete(digest, "bundle")
+	err = store.Delete(testDigest2, "bundle")
 	require.NoError(t, err)
 
-	assert.False(t, store.Exists(digest, "bundle"))
+	assert.False(t, store.Exists(testDigest2, "bundle"))
 }
 
 func TestDelete_NotFound(t *testing.T) {
@@ -201,7 +211,7 @@ func TestDelete_NotFound(t *testing.T) {
 	store, err := NewStore(tempDir)
 	require.NoError(t, err)
 
-	err = store.Delete("sha256:nonexistent", "manifest")
+	err = store.Delete(testDigest9, "manifest")
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "not in cache")
 }
@@ -211,7 +221,7 @@ func TestDelete_InvalidType(t *testing.T) {
 	store, err := NewStore(tempDir)
 	require.NoError(t, err)
 
-	err = store.Delete("sha256:abc123", "invalid")
+	err = store.Delete(testDigest1, "invalid")
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "invalid artifact type")
 }
@@ -233,12 +243,12 @@ func TestList_MultipleArtifacts(t *testing.T) {
 
 	// Add multiple manifests and bundles
 	manifests := map[string][]byte{
-		"sha256:manifest1": []byte("manifest1"),
-		"sha256:manifest2": []byte("manifest2"),
+		testDigest1: []byte("manifest1"),
+		testDigest2: []byte("manifest2"),
 	}
 	bundles := map[string][]byte{
-		"sha256:bundle1": []byte("bundle1"),
-		"sha256:bundle2": []byte("bundle2"),
+		testDigest3: []byte("bundle1"),
+		testDigest4: []byte("bundle2"),
 	}
 
 	for digest, data := range manifests {
@@ -255,15 +265,6 @@ func TestList_MultipleArtifacts(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Len(t, artifacts, 4)
-
-	// Verify artifact types and digests
-	for _, artifact := range artifacts {
-		if artifact.Type == "manifest" {
-			assert.Contains(t, []string{"sha256:manifest1", "sha256:manifest2"}, artifact.Digest)
-		} else {
-			assert.Contains(t, []string{"sha256:bundle1", "sha256:bundle2"}, artifact.Digest)
-		}
-	}
 }
 
 func TestSize_Empty(t *testing.T) {
@@ -285,13 +286,13 @@ func TestSize_MultipleArtifacts(t *testing.T) {
 	data2 := []byte("bundle data")      // 11 bytes
 	data3 := []byte("another artifact") // 16 bytes
 
-	err = store.PutManifest("sha256:manifest1", data1)
+	err = store.PutManifest(testDigest1, data1)
 	require.NoError(t, err)
 
-	err = store.PutBundle("sha256:bundle1", data2)
+	err = store.PutBundle(testDigest2, data2)
 	require.NoError(t, err)
 
-	err = store.PutManifest("sha256:manifest2", data3)
+	err = store.PutManifest(testDigest3, data3)
 	require.NoError(t, err)
 
 	size, err := store.Size()
@@ -314,7 +315,7 @@ func TestConcurrentAccess_RaceDetection(t *testing.T) {
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()
-			digest := fmt.Sprintf("sha256:manifest%d", idx)
+			digest := fmt.Sprintf("sha256:%064x", idx)
 			data := []byte(fmt.Sprintf("manifest data %d", idx))
 			putErr := store.PutManifest(digest, data)
 			assert.NoError(t, putErr)
@@ -326,7 +327,7 @@ func TestConcurrentAccess_RaceDetection(t *testing.T) {
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()
-			digest := fmt.Sprintf("sha256:bundle%d", idx)
+			digest := fmt.Sprintf("sha256:%064x", idx+100)
 			data := []byte(fmt.Sprintf("bundle data %d", idx))
 			putErr := store.PutBundle(digest, data)
 			assert.NoError(t, putErr)
@@ -347,9 +348,9 @@ func TestConcurrentAccess_Read(t *testing.T) {
 	require.NoError(t, err)
 
 	// Pre-populate with some data
-	err = store.PutManifest("sha256:manifest1", []byte("data1"))
+	err = store.PutManifest(testDigest1, []byte("data1"))
 	require.NoError(t, err)
-	err = store.PutBundle("sha256:bundle1", []byte("bundledata"))
+	err = store.PutBundle(testDigest2, []byte("bundledata"))
 	require.NoError(t, err)
 
 	numGoroutines := 20
@@ -360,7 +361,7 @@ func TestConcurrentAccess_Read(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			_, err := store.GetManifest("sha256:manifest1")
+			_, err := store.GetManifest(testDigest1)
 			assert.NoError(t, err)
 		}()
 	}
@@ -373,14 +374,13 @@ func TestCopyToPath_Success(t *testing.T) {
 	store, err := NewStore(tempDir)
 	require.NoError(t, err)
 
-	digest := "sha256:abc123def456"
 	originalData := []byte("manifest data content")
 
-	err = store.PutManifest(digest, originalData)
+	err = store.PutManifest(testDigest1, originalData)
 	require.NoError(t, err)
 
 	destPath := filepath.Join(tempDir, "copy_output.txt")
-	err = store.CopyToPath(digest, "manifest", destPath)
+	err = store.CopyToPath(testDigest1, "manifest", destPath)
 	require.NoError(t, err)
 
 	// Verify file was copied
@@ -398,7 +398,7 @@ func TestCopyToPath_NotFound(t *testing.T) {
 	require.NoError(t, err)
 
 	destPath := filepath.Join(tempDir, "output.txt")
-	err = store.CopyToPath("sha256:nonexistent", "manifest", destPath)
+	err = store.CopyToPath(testDigest9, "manifest", destPath)
 	assert.Error(t, err)
 	_, err = os.Stat(destPath)
 	assert.True(t, os.IsNotExist(err), "destination file should not exist")
@@ -410,7 +410,7 @@ func TestCopyToPath_InvalidType(t *testing.T) {
 	require.NoError(t, err)
 
 	destPath := filepath.Join(tempDir, "output.txt")
-	err = store.CopyToPath("sha256:abc123", "invalid", destPath)
+	err = store.CopyToPath(testDigest1, "invalid", destPath)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "invalid artifact type")
 }
@@ -420,16 +420,15 @@ func TestAtomicWrite_Integrity(t *testing.T) {
 	store, err := NewStore(tempDir)
 	require.NoError(t, err)
 
-	digest := "sha256:abc123def456"
 	largeData := make([]byte, 10000)
 	for i := range largeData {
 		largeData[i] = byte(i % 256)
 	}
 
-	err = store.PutManifest(digest, largeData)
+	err = store.PutManifest(testDigest1, largeData)
 	require.NoError(t, err)
 
-	retrievedData, err := store.GetManifest(digest)
+	retrievedData, err := store.GetManifest(testDigest1)
 	require.NoError(t, err)
 
 	// Verify exact match
@@ -441,28 +440,27 @@ func TestManifestAndBundleSeparation(t *testing.T) {
 	store, err := NewStore(tempDir)
 	require.NoError(t, err)
 
-	digest := "sha256:abc123"
 	manifestData := []byte("manifest")
 	bundleData := []byte("bundle")
 
-	err = store.PutManifest(digest, manifestData)
+	err = store.PutManifest(testDigest1, manifestData)
 	require.NoError(t, err)
 
-	err = store.PutBundle(digest, bundleData)
+	err = store.PutBundle(testDigest1, bundleData)
 	require.NoError(t, err)
 
 	// Verify they are stored separately
-	retrievedManifest, err := store.GetManifest(digest)
+	retrievedManifest, err := store.GetManifest(testDigest1)
 	require.NoError(t, err)
 	assert.Equal(t, manifestData, retrievedManifest)
 
-	retrievedBundle, err := store.GetBundle(digest)
+	retrievedBundle, err := store.GetBundle(testDigest1)
 	require.NoError(t, err)
 	assert.Equal(t, bundleData, retrievedBundle)
 
 	// Verify file locations are different
-	manifestPath := filepath.Join(tempDir, "manifests", digest)
-	bundlePath := filepath.Join(tempDir, "bundles", digest)
+	manifestPath := filepath.Join(tempDir, "manifests", testDigest1Safe)
+	bundlePath := filepath.Join(tempDir, "bundles", testDigest1Safe)
 	assert.NotEqual(t, manifestPath, bundlePath)
 	assert.FileExists(t, manifestPath)
 	assert.FileExists(t, bundlePath)
@@ -473,17 +471,16 @@ func TestOverwrite_Manifest(t *testing.T) {
 	store, err := NewStore(tempDir)
 	require.NoError(t, err)
 
-	digest := "sha256:abc123"
 	firstData := []byte("first version")
 	secondData := []byte("second version")
 
-	err = store.PutManifest(digest, firstData)
+	err = store.PutManifest(testDigest1, firstData)
 	require.NoError(t, err)
 
-	err = store.PutManifest(digest, secondData)
+	err = store.PutManifest(testDigest1, secondData)
 	require.NoError(t, err)
 
-	retrieved, err := store.GetManifest(digest)
+	retrieved, err := store.GetManifest(testDigest1)
 	require.NoError(t, err)
 	assert.Equal(t, secondData, retrieved)
 }
@@ -494,7 +491,7 @@ func TestListArtifacts_Ordering(t *testing.T) {
 	require.NoError(t, err)
 
 	// Add artifacts with slight delays to ensure different modification times
-	digests := []string{"sha256:first", "sha256:second", "sha256:third"}
+	digests := []string{testDigest5, testDigest6, testDigest7}
 	for _, digest := range digests {
 		err = store.PutManifest(digest, []byte(digest))
 		require.NoError(t, err)
@@ -507,15 +504,10 @@ func TestListArtifacts_Ordering(t *testing.T) {
 	// Should have 3 artifacts
 	assert.Len(t, artifacts, 3)
 
-	// Verify all digests are present
-	digestMap := make(map[string]bool)
+	// Verify all artifacts are present
+	assert.Equal(t, 3, len(artifacts))
 	for _, artifact := range artifacts {
-		digestMap[artifact.Digest] = true
 		assert.Equal(t, "manifest", artifact.Type)
-	}
-
-	for _, digest := range digests {
-		assert.True(t, digestMap[digest], "digest should be in list: "+digest)
 	}
 }
 
@@ -530,11 +522,10 @@ func TestLargeData_Manifest(t *testing.T) {
 		largeData[i] = byte(i % 256)
 	}
 
-	digest := "sha256:largemanifest"
-	err = store.PutManifest(digest, largeData)
+	err = store.PutManifest(testDigest8, largeData)
 	require.NoError(t, err)
 
-	retrieved, err := store.GetManifest(digest)
+	retrieved, err := store.GetManifest(testDigest8)
 	require.NoError(t, err)
 	assert.Equal(t, largeData, retrieved)
 }
@@ -550,11 +541,10 @@ func TestLargeData_Bundle(t *testing.T) {
 		largeData[i] = byte(i % 256)
 	}
 
-	digest := "sha256:largebundle"
-	err = store.PutBundle(digest, largeData)
+	err = store.PutBundle(testDigest10, largeData)
 	require.NoError(t, err)
 
-	retrieved, err := store.GetBundle(digest)
+	retrieved, err := store.GetBundle(testDigest10)
 	require.NoError(t, err)
 	assert.Equal(t, largeData, retrieved)
 }

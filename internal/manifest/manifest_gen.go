@@ -95,15 +95,15 @@ func GenerateManifest(sourceDir string, pkg *PackageRef, config *GeneratorConfig
 		Entrypoints: entrypoints,
 		Permissions: PermissionsInfo{
 			Network:    []string{}, // Default: no network access
-			FileSystem: []string{},  // Default: no filesystem access
-			Subprocess: false,       // Default: no subprocess
+			FileSystem: []string{}, // Default: no filesystem access
+			Subprocess: false,      // Default: no subprocess
 		},
 		Limits: LimitsInfo{
-			MaxCPU:    1000,         // 1 CPU core
-			MaxMemory: "512M",       // 512MB
-			MaxPIDs:   100,          // 100 processes
-			MaxFDs:    256,          // 256 file descriptors
-			Timeout:   "30s",        // 30 second timeout
+			MaxCPU:    1000,   // 1 CPU core
+			MaxMemory: "512M", // 512MB
+			MaxPIDs:   100,    // 100 processes
+			MaxFDs:    256,    // 256 file descriptors
+			Timeout:   "30s",  // 30 second timeout
 		},
 	}
 

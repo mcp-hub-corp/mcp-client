@@ -185,7 +185,7 @@ Security is a top priority. When contributing security-related changes:
 **DO NOT** open public issues for security vulnerabilities.
 
 Instead:
-1. Email security@example.com with details
+1. Email security@mcp-hub.info with details
 2. Include steps to reproduce
 3. Suggested fix if you have one
 4. We will acknowledge within 48 hours

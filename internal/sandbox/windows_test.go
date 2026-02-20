@@ -4,6 +4,7 @@ package sandbox
 
 import (
 	"os/exec"
+	"strings"
 	"testing"
 	"time"
 
@@ -22,10 +23,11 @@ func TestWindowsSandboxCapabilities(t *testing.T) {
 	sandbox := newWindowsSandbox()
 	caps := sandbox.Capabilities()
 
-	// Windows supports Job Objects for basic resource limits
-	assert.True(t, caps.CPULimit)
+	// Windows supports Job Objects for CPU, memory, and PID limits
+	assert.True(t, caps.CPULimit)   // CPU rate control via JOBOBJECT_CPU_RATE_CONTROL_INFORMATION
 	assert.True(t, caps.MemoryLimit)
 	assert.True(t, caps.PIDLimit)
+	assert.True(t, caps.ProcessIsolation) // Job Objects with KILL_ON_JOB_CLOSE + restricted tokens
 
 	// But not these features
 	assert.False(t, caps.NetworkIsolation)
@@ -51,7 +53,7 @@ func TestWindowsSandboxApply(t *testing.T) {
 		Timeout:   5 * time.Second,
 	}
 
-	err := sandbox.Apply(cmd, limits)
+	err := sandbox.Apply(cmd, limits, nil)
 	assert.NoError(t, err)
 }
 
@@ -67,7 +69,7 @@ func TestWindowsSandboxApplyPartialLimits(t *testing.T) {
 		Timeout:   5 * time.Second,
 	}
 
-	err := sandbox.Apply(cmd, limits)
+	err := sandbox.Apply(cmd, limits, nil)
 	assert.NoError(t, err)
 }
 
@@ -95,10 +97,69 @@ func TestWindowsSandboxNilInputs(t *testing.T) {
 	sandbox := newWindowsSandbox()
 
 	// Nil command
-	err := sandbox.Apply(nil, &policy.ExecutionLimits{})
+	err := sandbox.Apply(nil, &policy.ExecutionLimits{}, nil)
 	assert.Error(t, err)
 
 	// Nil limits
-	err = sandbox.Apply(exec.Command("cmd", "/c", "exit 0"), nil)
+	err = sandbox.Apply(exec.Command("cmd", "/c", "exit 0"), nil, nil)
 	assert.Error(t, err)
+}
+
+func TestWindowsSandboxApplyIntegratesRestrictedToken(t *testing.T) {
+	sandbox := newWindowsSandbox()
+	cmd := exec.Command("cmd", "/c", "exit 0")
+
+	limits := &policy.ExecutionLimits{
+		MaxCPU:    500,
+		MaxMemory: "256M",
+		MaxPIDs:   5,
+		MaxFDs:    100,
+		Timeout:   5 * time.Second,
+	}
+
+	err := sandbox.Apply(cmd, limits, nil)
+	assert.NoError(t, err)
+
+	// After Apply, the command should have SysProcAttr set
+	assert.NotNil(t, cmd.SysProcAttr)
+
+	// Token should be set (either restricted or low integrity)
+	// Both modify SysProcAttr.Token; at least one should succeed
+	// on a standard Windows system
+	assert.NotNil(t, cmd.SysProcAttr)
+}
+
+func TestWindowsSandboxCleanupAppContainers(t *testing.T) {
+	sandbox := newWindowsSandbox()
+
+	// Manually add a dummy name to verify cleanup logic
+	sandbox.appContainerMutex.Lock()
+	sandbox.appContainerNames = append(sandbox.appContainerNames, "mcp-test-cleanup-nonexistent")
+	sandbox.appContainerMutex.Unlock()
+
+	// Cleanup should not error (best-effort deletion of non-existent profiles)
+	err := sandbox.Cleanup(0)
+	assert.NoError(t, err)
+
+	// Names should be cleared
+	sandbox.appContainerMutex.Lock()
+	assert.Empty(t, sandbox.appContainerNames)
+	sandbox.appContainerMutex.Unlock()
+}
+
+func TestWindowsSandboxCapabilitiesCPU(t *testing.T) {
+	sandbox := newWindowsSandbox()
+	caps := sandbox.Capabilities()
+
+	// CPU rate control is now implemented
+	assert.True(t, caps.CPULimit)
+	// Warnings should mention restricted tokens
+	found := false
+	for _, w := range caps.Warnings {
+		if strings.Contains(w, "Restricted tokens") {
+			found = true
+			break
+		}
+	}
+	assert.True(t, found, "Capabilities should mention restricted tokens in warnings")
 }

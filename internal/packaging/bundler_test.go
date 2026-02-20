@@ -34,7 +34,7 @@ func TestBundlerBasicCreation(t *testing.T) {
 	assert.Equal(t, 0, result.DirCount) // no subdirectories
 	assert.Greater(t, result.UncompressedSize, int64(0))
 	assert.Greater(t, result.CompressedSize, int64(0))
-	assert.True(t, len(result.SHA256) > 0)
+	assert.NotEmpty(t, result.SHA256)
 	assert.FileExists(t, outputPath)
 }
 

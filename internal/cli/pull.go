@@ -53,7 +53,7 @@ func runPull(cmd *cobra.Command, args []string) error {
 
 	// Load stored authentication token
 	tokenStorage := registry.NewTokenStorage(cfg.CacheDir)
-	if token, err := tokenStorage.Load(); err == nil && token != nil && !token.IsExpired() {
+	if token, loadErr := tokenStorage.Load(); loadErr == nil && token != nil && !token.IsExpired() {
 		registryClient.SetToken(token.AccessToken)
 		logger.Debug("loaded stored authentication token")
 	}
@@ -303,11 +303,11 @@ func resolveHubMCP(hubBaseURL, owner, slug string) (org, name, version string, e
 		url.PathEscape(slug),
 	)
 
-	mcpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, mcpURL, nil)
+	mcpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, mcpURL, http.NoBody)
 	if err != nil {
 		return "", "", "", fmt.Errorf("creating hub API request: %w", err)
 	}
-	mcpReq.Header.Set("User-Agent", "mcp-client/1.0.0")
+	mcpReq.Header.Set("User-Agent", fmt.Sprintf("mcp-client/%s", Version))
 	mcpReq.Header.Set("Accept", "application/json")
 
 	mcpResp, err := http.DefaultClient.Do(mcpReq)
@@ -323,8 +323,8 @@ func resolveHubMCP(hubBaseURL, owner, slug string) (org, name, version string, e
 	}
 
 	var mcpData hubMCPResponse
-	if err := json.NewDecoder(mcpResp.Body).Decode(&mcpData); err != nil {
-		return "", "", "", fmt.Errorf("decoding hub API response: %w", err)
+	if decodeErr := json.NewDecoder(mcpResp.Body).Decode(&mcpData); decodeErr != nil {
+		return "", "", "", fmt.Errorf("decoding hub API response: %w", decodeErr)
 	}
 
 	// Step 2: Try to get version from /versions endpoint (has visible_version)
@@ -334,11 +334,11 @@ func resolveHubMCP(hubBaseURL, owner, slug string) (org, name, version string, e
 		url.PathEscape(slug),
 	)
 
-	versionsReq, err := http.NewRequestWithContext(ctx, http.MethodGet, versionsURL, nil)
+	versionsReq, err := http.NewRequestWithContext(ctx, http.MethodGet, versionsURL, http.NoBody)
 	if err != nil {
 		return "", "", "", fmt.Errorf("creating hub versions request: %w", err)
 	}
-	versionsReq.Header.Set("User-Agent", "mcp-client/1.0.0")
+	versionsReq.Header.Set("User-Agent", fmt.Sprintf("mcp-client/%s", Version))
 	versionsReq.Header.Set("Accept", "application/json")
 
 	versionsResp, err := http.DefaultClient.Do(versionsReq)

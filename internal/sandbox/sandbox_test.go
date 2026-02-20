@@ -42,8 +42,12 @@ func TestSandboxCapabilities(t *testing.T) {
 		assert.True(t, caps.MemoryLimit)
 		assert.True(t, caps.PIDLimit)
 		assert.True(t, caps.FDLimit)
-	case "darwin", "windows":
-		// macOS and Windows have limited isolation
+	case "darwin":
+		// macOS cannot enforce resource limits on child processes
+		assert.False(t, caps.CPULimit)
+		assert.False(t, caps.MemoryLimit)
+		assert.False(t, caps.Cgroups)
+	case "windows":
 		assert.False(t, caps.NetworkIsolation)
 	}
 }
@@ -87,14 +91,18 @@ func TestDiagnoseDarwin(t *testing.T) {
 
 	info := Diagnose()
 
-	// macOS should not have these
-	assert.False(t, info.Capabilities.NetworkIsolation)
+	// macOS does not have Linux features
 	assert.False(t, info.Capabilities.Cgroups)
 	assert.False(t, info.Capabilities.Namespaces)
+	assert.False(t, info.Capabilities.SupportsSeccomp)
 
-	// But should have rlimits
-	assert.True(t, info.Capabilities.CPULimit)
-	assert.True(t, info.Capabilities.MemoryLimit)
+	// macOS cannot enforce resource limits on child processes
+	// (Setrlimit applies to the parent on macOS)
+	assert.False(t, info.Capabilities.CPULimit)
+	assert.False(t, info.Capabilities.MemoryLimit)
+
+	// sandbox-exec may provide filesystem/network isolation
+	// (depends on system availability)
 }
 
 func TestDiagnoseWindows(t *testing.T) {
@@ -108,6 +116,8 @@ func TestDiagnoseWindows(t *testing.T) {
 	assert.False(t, info.Capabilities.NetworkIsolation)
 	assert.False(t, info.Capabilities.Cgroups)
 	assert.False(t, info.Capabilities.Namespaces)
+	assert.True(t, info.Capabilities.CPULimit)         // CPU rate control via Job Objects
+	assert.True(t, info.Capabilities.ProcessIsolation) // Job Objects + restricted tokens
 }
 
 func TestParseMemory(t *testing.T) {
@@ -173,12 +183,12 @@ func TestApplyWithNilInputs(t *testing.T) {
 	}
 
 	// Test with nil command
-	err := sandbox.Apply(nil, limits)
+	err := sandbox.Apply(nil, limits, nil)
 	assert.Error(t, err)
 
 	// Test with nil limits
 	cmd := exec.Command("echo", "test")
-	err = sandbox.Apply(cmd, nil)
+	err = sandbox.Apply(cmd, nil, nil)
 	assert.Error(t, err)
 }
 
@@ -199,7 +209,7 @@ func TestApplyBasic(t *testing.T) {
 	}
 
 	// Should not error on basic apply
-	err := sandbox.Apply(cmd, limits)
+	err := sandbox.Apply(cmd, limits, nil)
 	assert.NoError(t, err)
 
 	// Command should still be valid
@@ -226,7 +236,7 @@ func TestNoOpSandbox(t *testing.T) {
 		Timeout:   5 * time.Second,
 	}
 
-	err := sandbox.Apply(cmd, limits)
+	err := sandbox.Apply(cmd, limits, nil)
 	assert.NoError(t, err)
 }
 
@@ -256,7 +266,7 @@ func TestSandboxConcurrency(t *testing.T) {
 	for i := 0; i < 10; i++ {
 		go func() {
 			cmd := exec.Command("echo", "test")
-			done <- sandbox.Apply(cmd, limits)
+			done <- sandbox.Apply(cmd, limits, nil)
 		}()
 	}
 

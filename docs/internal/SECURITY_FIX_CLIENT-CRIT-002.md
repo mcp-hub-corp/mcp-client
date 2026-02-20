@@ -87,7 +87,7 @@ Updated to reflect new behavior:
 
 ### Test Results
 ```bash
-$ cd /Users/cr0hn/Projects/mcp-hub-platform/mcp-client
+$ cd mcp-client
 $ go test -v ./internal/packaging/
 
 === RUN   TestBundlerRejectsSymlinks
@@ -143,10 +143,10 @@ If users need to include linked content, they should:
 
 ## Files Modified
 
-1. `/Users/cr0hn/Projects/mcp-hub-platform/mcp-client/internal/packaging/bundler.go`
+1. `internal/packaging/bundler.go`
    - Lines 476-500: Rewrote `validatePathTraversal()` function
 
-2. `/Users/cr0hn/Projects/mcp-hub-platform/mcp-client/internal/packaging/bundler_test.go`
+2. `internal/packaging/bundler_test.go`
    - Lines 138-167: Updated `TestBundlerAntiPathTraversal()`
    - Lines 169-229: Added new `TestBundlerRejectsSymlinks()`
 

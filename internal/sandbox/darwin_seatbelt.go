@@ -56,10 +56,10 @@ func generateSBPLProfile(commandPath string, perms *manifest.PermissionsInfo, wo
 	// (e.g., uv -> python -> mcp server) so we must allow their runtime paths.
 	sb.WriteString("; Runtime binary directories (for system command chains)\n")
 	for _, runtimeDir := range []string{
-		"/opt/homebrew",     // Homebrew on Apple Silicon
-		"/usr/local",        // Homebrew on Intel / system installs
-		"/usr/bin",          // System binaries
-		"/usr/lib",          // System libraries (dylibs)
+		"/opt/homebrew", // Homebrew on Apple Silicon
+		"/usr/local",    // Homebrew on Intel / system installs
+		"/usr/bin",      // System binaries
+		"/usr/lib",      // System libraries (dylibs)
 		"/Library/Frameworks",
 	} {
 		if _, statErr := os.Stat(runtimeDir); statErr == nil {
@@ -138,15 +138,15 @@ func generateSBPLProfile(commandPath string, perms *manifest.PermissionsInfo, wo
 		return "", fmt.Errorf("failed to create sandbox profile: %w", err)
 	}
 
-	if _, err := profileFile.WriteString(sb.String()); err != nil {
-		profileFile.Close()
-		os.Remove(profileFile.Name())
-		return "", fmt.Errorf("failed to write sandbox profile: %w", err)
+	if _, writeErr := profileFile.WriteString(sb.String()); writeErr != nil {
+		_ = profileFile.Close()
+		_ = os.Remove(profileFile.Name())
+		return "", fmt.Errorf("failed to write sandbox profile: %w", writeErr)
 	}
 
-	if err := profileFile.Close(); err != nil {
-		os.Remove(profileFile.Name())
-		return "", fmt.Errorf("failed to close sandbox profile: %w", err)
+	if closeErr := profileFile.Close(); closeErr != nil {
+		_ = os.Remove(profileFile.Name())
+		return "", fmt.Errorf("failed to close sandbox profile: %w", closeErr)
 	}
 
 	return profileFile.Name(), nil

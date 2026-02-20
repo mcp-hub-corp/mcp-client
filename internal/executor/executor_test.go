@@ -22,7 +22,7 @@ func TestNewSTDIOExecutor(t *testing.T) {
 	}
 	env := map[string]string{"TEST": "value"}
 
-	executor, err := NewSTDIOExecutor(workDir, limits, env)
+	executor, err := NewSTDIOExecutor(workDir, limits, nil, env)
 	require.NoError(t, err)
 	require.NotNil(t, executor)
 	assert.Equal(t, workDir, executor.workDir)
@@ -32,13 +32,13 @@ func TestNewSTDIOExecutor(t *testing.T) {
 
 func TestNewSTDIOExecutor_EmptyWorkDir(t *testing.T) {
 	limits := &policy.ExecutionLimits{Timeout: time.Minute}
-	_, err := NewSTDIOExecutor("", limits, nil)
+	_, err := NewSTDIOExecutor("", limits, nil, nil)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "work directory")
 }
 
 func TestNewSTDIOExecutor_NilLimits(t *testing.T) {
-	_, err := NewSTDIOExecutor(t.TempDir(), nil, nil)
+	_, err := NewSTDIOExecutor(t.TempDir(), nil, nil, nil)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "limits")
 }
@@ -46,7 +46,7 @@ func TestNewSTDIOExecutor_NilLimits(t *testing.T) {
 func TestExecute_NilEntrypoint(t *testing.T) {
 	executor, _ := NewSTDIOExecutor(t.TempDir(), &policy.ExecutionLimits{
 		Timeout: time.Second,
-	}, nil)
+	}, nil, nil)
 
 	ctx := context.Background()
 	err := executor.Execute(ctx, nil, t.TempDir())
@@ -57,7 +57,7 @@ func TestExecute_NilEntrypoint(t *testing.T) {
 func TestExecute_EmptyBundlePath(t *testing.T) {
 	executor, _ := NewSTDIOExecutor(t.TempDir(), &policy.ExecutionLimits{
 		Timeout: time.Second,
-	}, nil)
+	}, nil, nil)
 
 	entrypoint := &manifest.Entrypoint{Command: "test"}
 	ctx := context.Background()
@@ -69,7 +69,7 @@ func TestExecute_EmptyBundlePath(t *testing.T) {
 func TestExecute_CommandNotFound(t *testing.T) {
 	executor, _ := NewSTDIOExecutor(t.TempDir(), &policy.ExecutionLimits{
 		Timeout: time.Second,
-	}, nil)
+	}, nil, nil)
 
 	entrypoint := &manifest.Entrypoint{
 		Command: "nonexistent_command_xyz",
@@ -88,7 +88,7 @@ func TestSTDIOExecutor_EnvironmentHandling(t *testing.T) {
 		MaxPIDs:   32,
 		MaxFDs:    256,
 		Timeout:   time.Minute,
-	}, map[string]string{
+	}, nil, map[string]string{
 		"KEY1": "value1",
 		"KEY2": "value2",
 	})
@@ -105,7 +105,7 @@ func TestSTDIOExecutor_EmptyEnvironment(t *testing.T) {
 		MaxPIDs:   32,
 		MaxFDs:    256,
 		Timeout:   time.Minute,
-	}, nil)
+	}, nil, nil)
 	require.NoError(t, err)
 	assert.NotNil(t, executor)
 	assert.Nil(t, executor.env)
@@ -118,11 +118,10 @@ func TestSetLogger(t *testing.T) {
 		MaxPIDs:   32,
 		MaxFDs:    256,
 		Timeout:   time.Minute,
-	}, nil)
+	}, nil, nil)
 	require.NoError(t, err)
 
 	// Should not panic
 	executor.SetLogger(nil)
 	require.NotNil(t, executor)
 }
-

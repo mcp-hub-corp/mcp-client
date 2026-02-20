@@ -48,6 +48,9 @@ func outputDoctorText(info *sandbox.DiagnosticInfo) error {
 	printCapability("Cgroups", caps.Cgroups)
 	printCapability("Namespaces", caps.Namespaces)
 	printCapability("Seccomp", caps.SupportsSeccomp)
+	printCapability("Landlock", caps.SupportsLandlock)
+	printCapability("sandbox-exec (macOS)", caps.SupportsSandboxExec)
+	printCapability("Process Isolation (Job Objects)", caps.ProcessIsolation)
 	fmt.Println()
 
 	// Platform-specific information
@@ -78,7 +81,7 @@ func outputDoctorText(info *sandbox.DiagnosticInfo) error {
 	// Summary
 	fmt.Printf("Summary:\n")
 	enabledCount := countEnabledCapabilities(caps)
-	totalCapabilities := 9 // Update if more capabilities are added
+	totalCapabilities := 12 // CPU, Memory, PID, FD, Network, FS, Cgroups, NS, Seccomp, Landlock, SandboxExec, ProcessIsolation
 	fmt.Printf("  %d/%d features available\n", enabledCount, totalCapabilities)
 
 	return nil
@@ -125,6 +128,15 @@ func countEnabledCapabilities(caps sandbox.Capabilities) int {
 		count++
 	}
 	if caps.SupportsSeccomp {
+		count++
+	}
+	if caps.SupportsLandlock {
+		count++
+	}
+	if caps.SupportsSandboxExec {
+		count++
+	}
+	if caps.ProcessIsolation {
 		count++
 	}
 	return count

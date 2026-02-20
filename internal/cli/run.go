@@ -18,6 +18,7 @@ import (
 	"github.com/security-mcp/mcp-client/internal/manifest"
 	"github.com/security-mcp/mcp-client/internal/policy"
 	"github.com/security-mcp/mcp-client/internal/registry"
+	"github.com/security-mcp/mcp-client/internal/sandbox"
 	"github.com/spf13/cobra"
 )
 
@@ -354,6 +355,15 @@ func runMCPServer(cmd *cobra.Command, args []string) error {
 		slog.String("security_policy", "mandatory_limits_enforced"),
 	)
 
+	// Print verbose security summary if -v flag is set
+	if verbose {
+		formatStr := "hub"
+		if !mf.HubFormat {
+			formatStr = "registry"
+		}
+		printSecuritySummary(org, name, resolvedVersion, origin, certLevel, gitSHA, formatStr, ep, mf, limits, bundleRoot, runFlags.noSandbox)
+	}
+
 	// Load environment variables
 	env := make(map[string]string)
 	if runFlags.envFile != "" {
@@ -557,6 +567,209 @@ func extractBundle(data []byte, destDir string) error {
 	}
 
 	return nil
+}
+
+// ANSI color constants for terminal output
+const (
+	colorReset  = "\033[0m"
+	colorBold   = "\033[1m"
+	colorRed    = "\033[31m"
+	colorGreen  = "\033[32m"
+	colorYellow = "\033[33m"
+	colorCyan   = "\033[36m"
+)
+
+// certLevelName maps certification levels to human-readable names
+func certLevelName(level int) string {
+	switch level {
+	case 0:
+		return "Integrity Verified"
+	case 1:
+		return "Static Verified"
+	case 2:
+		return "Security Certified"
+	case 3:
+		return "Runtime Certified"
+	default:
+		return "Unknown"
+	}
+}
+
+//nolint:errcheck // all writes are to stderr, errors are not actionable
+func printSecuritySummary(org, name, version, origin string, certLevel int, gitSHA, format string, ep *manifest.Entrypoint, mf *manifest.Manifest, limits *policy.ExecutionLimits, bundleRoot string, noSandbox bool) {
+	const boxWidth = 50
+	border := strings.Repeat("─", boxWidth)
+
+	w := os.Stderr
+
+	fmt.Fprintf(w, "\n%s┌%s┐%s\n", colorCyan, border, colorReset)
+	fmt.Fprintf(w, "%s│%s  %sMCP Security Summary%s%s%s│%s\n", colorCyan, colorReset, colorBold, colorReset, strings.Repeat(" ", boxWidth-22), colorCyan, colorReset)
+	fmt.Fprintf(w, "%s├%s┤%s\n", colorCyan, border, colorReset)
+
+	// Package Info
+	printField(w, "Package", fmt.Sprintf("%s/%s", org, name), boxWidth)
+	printField(w, "Version", version, boxWidth)
+	printField(w, "Origin", origin, boxWidth)
+	printField(w, "Cert Level", fmt.Sprintf("%d (%s)", certLevel, certLevelName(certLevel)), boxWidth)
+	printField(w, "Format", format, boxWidth)
+	if gitSHA != "" {
+		displaySHA := gitSHA
+		if len(displaySHA) > 7 {
+			displaySHA = displaySHA[:7]
+		}
+		printField(w, "Git SHA", displaySHA, boxWidth)
+	}
+
+	// Entrypoint
+	fmt.Fprintf(w, "%s├%s┤%s\n", colorCyan, border, colorReset)
+	fmt.Fprintf(w, "%s│%s  %sEntrypoint%s%s%s│%s\n", colorCyan, colorReset, colorBold, colorReset, strings.Repeat(" ", boxWidth-12), colorCyan, colorReset)
+	cmdStr := ep.Command
+	if len(ep.Args) > 0 {
+		cmdStr += " " + strings.Join(ep.Args, " ")
+	}
+	printField(w, "  Command", cmdStr, boxWidth)
+	printField(w, "  OS/Arch", fmt.Sprintf("%s/%s", ep.OS, ep.Arch), boxWidth)
+	printField(w, "  WorkDir", bundleRoot, boxWidth)
+
+	// Permissions Requested
+	fmt.Fprintf(w, "%s├%s┤%s\n", colorCyan, border, colorReset)
+	fmt.Fprintf(w, "%s│%s  %sPermissions Requested%s%s%s│%s\n", colorCyan, colorReset, colorBold, colorReset, strings.Repeat(" ", boxWidth-23), colorCyan, colorReset)
+
+	networkStr := "none"
+	if len(mf.Permissions.Network) > 0 {
+		networkStr = strings.Join(mf.Permissions.Network, ", ")
+	}
+	printField(w, "  Network", networkStr, boxWidth)
+
+	fsStr := "none"
+	if len(mf.Permissions.FileSystem) > 0 {
+		fsStr = strings.Join(mf.Permissions.FileSystem, ", ")
+	}
+	printField(w, "  Filesystem", fsStr, boxWidth)
+
+	if mf.Permissions.Subprocess {
+		fmt.Fprintf(w, "%s│%s  Subprocess:  %s%s allowed%s%s%s│%s\n", colorCyan, colorReset, colorGreen, "✓", colorReset, strings.Repeat(" ", boxWidth-24), colorCyan, colorReset)
+	} else {
+		fmt.Fprintf(w, "%s│%s  Subprocess:  %s%s denied%s%s%s│%s\n", colorCyan, colorReset, colorRed, "✗", colorReset, strings.Repeat(" ", boxWidth-23), colorCyan, colorReset)
+	}
+
+	envStr := "all"
+	if len(mf.Permissions.Environment) > 0 {
+		envStr = strings.Join(mf.Permissions.Environment, ", ")
+	}
+	printField(w, "  Environment", envStr, boxWidth)
+
+	// Execution Limits
+	fmt.Fprintf(w, "%s├%s┤%s\n", colorCyan, border, colorReset)
+	fmt.Fprintf(w, "%s│%s  %sExecution Limits%s%s%s│%s\n", colorCyan, colorReset, colorBold, colorReset, strings.Repeat(" ", boxWidth-18), colorCyan, colorReset)
+	printField(w, "  CPU", fmt.Sprintf("%d millicores", limits.MaxCPU), boxWidth)
+	printField(w, "  Memory", limits.MaxMemory, boxWidth)
+	printField(w, "  PIDs", fmt.Sprintf("%d", limits.MaxPIDs), boxWidth)
+	printField(w, "  FDs", fmt.Sprintf("%d", limits.MaxFDs), boxWidth)
+	printField(w, "  Timeout", limits.Timeout.String(), boxWidth)
+
+	// Sandbox Capabilities
+	fmt.Fprintf(w, "%s├%s┤%s\n", colorCyan, border, colorReset)
+
+	sb := sandbox.New()
+	caps := sb.Capabilities()
+	sbName := sb.Name()
+
+	if noSandbox {
+		fmt.Fprintf(w, "%s│%s  %s%sSandbox: DISABLED (--no-sandbox)%s%s%s│%s\n", colorCyan, colorReset, colorBold, colorYellow, colorReset, strings.Repeat(" ", boxWidth-35), colorCyan, colorReset)
+	} else {
+		fmt.Fprintf(w, "%s│%s  %sSandbox: %s%s%s%s│%s\n", colorCyan, colorReset, colorBold, sbName, colorReset, strings.Repeat(" ", boxWidth-12-len(sbName)), colorCyan, colorReset)
+	}
+
+	printSecCapability(w, "CPU Limiting", caps.CPULimit, boxWidth)
+	printSecCapability(w, "Memory Limiting", caps.MemoryLimit, boxWidth)
+	printSecCapability(w, "PID Limiting", caps.PIDLimit, boxWidth)
+	printSecCapability(w, "FD Limiting", caps.FDLimit, boxWidth)
+	printSecCapability(w, "Network Isolation", caps.NetworkIsolation, boxWidth)
+	printSecCapability(w, "Filesystem Isolation", caps.FilesystemIsolation, boxWidth)
+	if caps.Cgroups {
+		printSecCapability(w, "cgroups", true, boxWidth)
+	}
+	if caps.Namespaces {
+		printSecCapability(w, "Namespaces", true, boxWidth)
+	}
+	if caps.SupportsSeccomp {
+		printSecCapability(w, "seccomp", true, boxWidth)
+	}
+	if caps.SupportsLandlock {
+		printSecCapability(w, "Landlock", true, boxWidth)
+	}
+	if caps.SupportsSandboxExec {
+		printSecCapability(w, "sandbox-exec (SBPL)", true, boxWidth)
+	}
+	if caps.ProcessIsolation {
+		printSecCapability(w, "Process Isolation", true, boxWidth)
+	}
+
+	// Warnings
+	if len(caps.Warnings) > 0 || noSandbox {
+		fmt.Fprintf(w, "%s├%s┤%s\n", colorCyan, border, colorReset)
+		fmt.Fprintf(w, "%s│%s  %sWarnings%s%s%s│%s\n", colorCyan, colorReset, colorBold, colorReset, strings.Repeat(" ", boxWidth-10), colorCyan, colorReset)
+		if noSandbox {
+			printWarning(w, "Sandbox is disabled! Process runs without isolation", boxWidth)
+		}
+		for _, warning := range caps.Warnings {
+			printWarning(w, warning, boxWidth)
+		}
+	}
+
+	fmt.Fprintf(w, "%s└%s┘%s\n\n", colorCyan, border, colorReset)
+}
+
+// printField prints a labeled field inside the box
+//
+//nolint:unparam // boxWidth kept as parameter for consistency with other print functions
+func printField(w *os.File, label, value string, boxWidth int) {
+	content := fmt.Sprintf("  %s: %s", label, value)
+	// Truncate if too long
+	if len(content) > boxWidth-2 {
+		content = content[:boxWidth-5] + "..."
+	}
+	padding := boxWidth - len(content)
+	if padding < 0 {
+		padding = 0
+	}
+	_, _ = fmt.Fprintf(w, "%s│%s%s%s%s│%s\n", colorCyan, colorReset, content, strings.Repeat(" ", padding), colorCyan, colorReset)
+}
+
+// printSecCapability prints a sandbox capability with check/cross mark and color
+//
+//nolint:unparam // boxWidth kept as parameter for consistency with other print functions
+func printSecCapability(w *os.File, name string, available bool, boxWidth int) {
+	var mark, color string
+	if available {
+		mark = "✓"
+		color = colorGreen
+	} else {
+		mark = "✗"
+		color = colorRed
+	}
+	// Account for ANSI codes in visual width calculation
+	visualLen := 4 + 1 + len(mark) + 2 + len(name) // "    [" + mark + "] " + name
+	padding := boxWidth - visualLen
+	if padding < 0 {
+		padding = 0
+	}
+	_, _ = fmt.Fprintf(w, "%s│%s%s    [%s%s] %s%s%s%s│%s\n", colorCyan, colorReset, "", color, mark, name, colorReset, strings.Repeat(" ", padding), colorCyan, colorReset)
+}
+
+// printWarning prints a warning line inside the box
+func printWarning(w *os.File, text string, boxWidth int) {
+	// Truncate if too long (account for ANSI codes)
+	if len(text) > boxWidth-10 {
+		text = text[:boxWidth-13] + "..."
+	}
+	visualLen := 4 + 4 + len(text) // "    " + "[!] " + text
+	padding := boxWidth - visualLen
+	if padding < 0 {
+		padding = 0
+	}
+	_, _ = fmt.Fprintf(w, "%s│%s    %s[!] %s%s%s%s│%s\n", colorCyan, colorReset, colorYellow, text, colorReset, strings.Repeat(" ", padding), colorCyan, colorReset)
 }
 
 // loadEnvFile loads environment variables from a file

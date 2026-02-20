@@ -10,7 +10,7 @@ import (
 // TestNewSTDIOExecutor_RejectsNilLimits verifies that executor rejects nil limits
 // CRITICAL SECURITY TEST: Execution without limits must NEVER be allowed
 func TestNewSTDIOExecutor_RejectsNilLimits(t *testing.T) {
-	_, err := NewSTDIOExecutor("/tmp", nil, nil)
+	_, err := NewSTDIOExecutor("/tmp", nil, nil, nil)
 	if err == nil {
 		t.Fatal("CRITICAL SECURITY FAILURE: NewSTDIOExecutor accepted nil limits")
 	}
@@ -30,7 +30,7 @@ func TestNewSTDIOExecutor_RejectsZeroMaxCPU(t *testing.T) {
 		Timeout:   5 * time.Minute,
 	}
 
-	_, err := NewSTDIOExecutor("/tmp", limits, nil)
+	_, err := NewSTDIOExecutor("/tmp", limits, nil, nil)
 	if err == nil {
 		t.Fatal("CRITICAL SECURITY FAILURE: NewSTDIOExecutor accepted zero MaxCPU")
 	}
@@ -50,7 +50,7 @@ func TestNewSTDIOExecutor_RejectsNegativeMaxCPU(t *testing.T) {
 		Timeout:   5 * time.Minute,
 	}
 
-	_, err := NewSTDIOExecutor("/tmp", limits, nil)
+	_, err := NewSTDIOExecutor("/tmp", limits, nil, nil)
 	if err == nil {
 		t.Fatal("CRITICAL SECURITY FAILURE: NewSTDIOExecutor accepted negative MaxCPU")
 	}
@@ -66,7 +66,7 @@ func TestNewSTDIOExecutor_RejectsEmptyMaxMemory(t *testing.T) {
 		Timeout:   5 * time.Minute,
 	}
 
-	_, err := NewSTDIOExecutor("/tmp", limits, nil)
+	_, err := NewSTDIOExecutor("/tmp", limits, nil, nil)
 	if err == nil {
 		t.Fatal("CRITICAL SECURITY FAILURE: NewSTDIOExecutor accepted empty MaxMemory")
 	}
@@ -86,7 +86,7 @@ func TestNewSTDIOExecutor_RejectsZeroMaxPIDs(t *testing.T) {
 		Timeout:   5 * time.Minute,
 	}
 
-	_, err := NewSTDIOExecutor("/tmp", limits, nil)
+	_, err := NewSTDIOExecutor("/tmp", limits, nil, nil)
 	if err == nil {
 		t.Fatal("CRITICAL SECURITY FAILURE: NewSTDIOExecutor accepted zero MaxPIDs")
 	}
@@ -106,7 +106,7 @@ func TestNewSTDIOExecutor_RejectsZeroMaxFDs(t *testing.T) {
 		Timeout:   5 * time.Minute,
 	}
 
-	_, err := NewSTDIOExecutor("/tmp", limits, nil)
+	_, err := NewSTDIOExecutor("/tmp", limits, nil, nil)
 	if err == nil {
 		t.Fatal("CRITICAL SECURITY FAILURE: NewSTDIOExecutor accepted zero MaxFDs")
 	}
@@ -126,7 +126,7 @@ func TestNewSTDIOExecutor_RejectsZeroTimeout(t *testing.T) {
 		Timeout:   0, // Invalid - no timeout
 	}
 
-	_, err := NewSTDIOExecutor("/tmp", limits, nil)
+	_, err := NewSTDIOExecutor("/tmp", limits, nil, nil)
 	if err == nil {
 		t.Fatal("CRITICAL SECURITY FAILURE: NewSTDIOExecutor accepted zero Timeout")
 	}
@@ -142,7 +142,7 @@ func TestNewSTDIOExecutor_AcceptsValidLimits(t *testing.T) {
 		Timeout:   5 * time.Minute,
 	}
 
-	executor, err := NewSTDIOExecutor("/tmp", limits, nil)
+	executor, err := NewSTDIOExecutor("/tmp", limits, nil, nil)
 	if err != nil {
 		t.Fatalf("NewSTDIOExecutor rejected valid limits: %v", err)
 	}
@@ -240,7 +240,7 @@ func TestNewSTDIOExecutor_EnforcesAllLimits(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := NewSTDIOExecutor("/tmp", tc.limits, nil)
+			_, err := NewSTDIOExecutor("/tmp", tc.limits, nil, nil)
 
 			if tc.shouldFail {
 				if err == nil {

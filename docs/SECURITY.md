@@ -10,8 +10,8 @@ mcp-client implements lightweight security controls to mitigate common threats w
 
 mcp-client has documented sandbox bypass vulnerabilities on macOS and Windows. These are NOT theoretical - they are confirmed and exploitable:
 
-- **macOS (CLIENT-CRIT-003):** Resource limits are NOT enforced on child processes
-- **Windows (CLIENT-CRIT-004, CLIENT-CRIT-005):** Job Object limits are NOT applied
+- **macOS:** Resource limits are NOT enforced on child processes
+- **Windows:** Job Object limits are NOT applied
 
 **See [SECURITY_SANDBOX_LIMITATIONS.md](SECURITY_SANDBOX_LIMITATIONS.md) for:**
 - Detailed technical analysis of each vulnerability
@@ -95,15 +95,15 @@ mcp-client has documented sandbox bypass vulnerabilities on macOS and Windows. T
 - Timing attacks cannot be prevented
 - Covert channels (CPU cache, memory timing) are not blocked
 
-#### 4. Windows Network Isolation
-- Windows lacks native eBPF or netns equivalent
-- Requires WFP drivers for network filtering
-- Default-deny network not enforced on Windows (documented limitation)
+#### 4. Windows Network/Filesystem Isolation (Fixable)
+- mcp-client does not implement network or filesystem isolation on Windows
+- **However**, Windows provides AppContainers (kernel-enforced, no admin) and Process Mitigation Policies that CAN provide this isolation — they are not yet implemented
+- See [WINDOWS_SANDBOX.md](WINDOWS_SANDBOX.md) for available mechanisms
 
-#### 5. macOS Network/Filesystem Isolation
-- macOS lacks network namespaces
-- Filesystem sandboxing not robust without hypervisor
-- Limited to rlimits and timeouts
+#### 5. macOS Network/Filesystem Isolation (Fixable)
+- mcp-client does not implement network or filesystem isolation on macOS
+- **However**, macOS provides `sandbox-exec` / Seatbelt (kernel-enforced, no root) that CAN provide filesystem + network + process isolation — it is not yet implemented
+- See [MACOS_SANDBOX.md](MACOS_SANDBOX.md) for available mechanisms
 
 #### 6. Registry Compromise
 - If registry is hacked and serves signed artifacts, mcp-client trusts the digest
@@ -215,7 +215,7 @@ executor:
 
 ### macOS
 
-⚠️ **CRITICAL VULNERABILITY (CLIENT-CRIT-003):** Resource limits are NOT enforced on child processes. See [SECURITY_SANDBOX_LIMITATIONS.md](SECURITY_SANDBOX_LIMITATIONS.md).
+⚠️ **CRITICAL VULNERABILITY:** Resource limits are NOT enforced on child processes. See [SECURITY_SANDBOX_LIMITATIONS.md](SECURITY_SANDBOX_LIMITATIONS.md).
 
 **Intended Security Mechanisms** (NOT WORKING):
 
@@ -235,12 +235,15 @@ executor:
    - Rely on UNIX DAC (Discretionary Access Control)
    - Status: ⚠️ Available (but weak, no namespace isolation)
 
-**NOT Available**:
-- Network namespaces (no `unshare`)
-- cgroups (no native support)
-- Seccomp (no BPF equivalent)
-- Sandbox API deprecated
-- **Resource limits on child processes** ❌
+**NOT Implemented** (but OS mechanisms exist):
+- Network isolation: `sandbox-exec` can enforce per-host:port network rules (NOT IMPLEMENTED)
+- Filesystem isolation: `sandbox-exec` can enforce per-path access (NOT IMPLEMENTED)
+- Subprocess blocking: `sandbox-exec` can deny `process-fork` (NOT IMPLEMENTED)
+- Resource limits on child processes: requires cgo wrapper or sandbox-exec (NOT IMPLEMENTED)
+- cgroups: no native support (macOS does not have cgroups)
+- seccomp: no BPF equivalent (but sandbox-exec provides similar capabilities)
+
+See [MACOS_SANDBOX.md](MACOS_SANDBOX.md) for full details on `sandbox-exec` and available mechanisms.
 
 **Limitations**:
 - ❌ **CRITICAL:** No resource limits on child processes (CPU, memory, PIDs, FDs)
@@ -277,7 +280,7 @@ executor:
 
 ### Windows
 
-⚠️ **CRITICAL VULNERABILITIES (CLIENT-CRIT-004, CLIENT-CRIT-005):** Job Object limits are NOT applied to processes. See [SECURITY_SANDBOX_LIMITATIONS.md](SECURITY_SANDBOX_LIMITATIONS.md).
+⚠️ **CRITICAL VULNERABILITIES:** Job Object limits are NOT applied to processes. See [SECURITY_SANDBOX_LIMITATIONS.md](SECURITY_SANDBOX_LIMITATIONS.md).
 
 **Intended Security Mechanisms** (NOT WORKING):
 
@@ -548,16 +551,18 @@ Else:
 - ℹ️ If running as non-root, some mechanisms limited
 
 ### macOS
-- ❌ Network isolation NOT available (no netns)
-- ❌ Filesystem strict isolation NOT available
-- ✅ Resource limits (rlimits) available
-- ℹ️ Recommended: Run in VM for untrusted code
+- ❌ Network isolation NOT implemented (but `sandbox-exec` CAN provide it — see [MACOS_SANDBOX.md](MACOS_SANDBOX.md))
+- ❌ Filesystem strict isolation NOT implemented (but `sandbox-exec` CAN provide it)
+- ❌ Resource limits NOT applied to child processes (`Setrlimit()` on parent, not child)
+- ✅ Timeout enforcement works
+- ℹ️ Recommended: Run in VM for untrusted code (until sandbox-exec integration)
 
 ### Windows
-- ❌ Network isolation NOT available (unless WFP driver)
-- ❌ Filesystem strict isolation NOT available
-- ✅ Resource limits (Job Objects) available
-- ℹ️ Recommended: Windows Sandbox for untrusted code (future work)
+- ❌ Network isolation NOT implemented (but AppContainers CAN provide it — see [WINDOWS_SANDBOX.md](WINDOWS_SANDBOX.md))
+- ❌ Filesystem strict isolation NOT implemented (but AppContainers CAN provide it)
+- ❌ Resource limits NOT applied (`setJobLimits()` is NO-OP)
+- ✅ Timeout enforcement works
+- ℹ️ Recommended: Docker Desktop until Job Object fix ships
 
 ## Security Best Practices
 
@@ -596,7 +601,7 @@ Else:
 If you discover a security vulnerability in mcp-client:
 
 1. **Do NOT** open a public GitHub issue
-2. Email security details to: [security@example.com]
+2. Email security details to: security@mcp-hub.info
 3. Include:
    - Description of vulnerability
    - Steps to reproduce
@@ -607,8 +612,8 @@ We aim to respond within 48 hours and release patches promptly.
 
 ---
 
-**Last Updated**: 2026-01-18
-**Document Version**: 1.0
+**Last Updated**: 2026-01-27
+**Document Version**: 1.1
 
 ## Mandatory Default Limits
 
@@ -653,7 +658,7 @@ These limits are MANDATORY and applied to every execution:
 
 | Layer | Status | Requirements | Description |
 |-------|--------|--------------|-------------|
-| rlimits | ❌ **BROKEN** | None | ❌ NOT applied to child processes (CLIENT-CRIT-003) |
+| rlimits | ❌ **BROKEN** | None | ❌ NOT applied to child processes |
 | Timeout | ✅ ENABLED | None | Parent monitors and kills child (ONLY working control) |
 | Mount NS | ❌ UNSUPPORTED | N/A | macOS has no mount namespaces |
 | Network NS | ❌ UNSUPPORTED | N/A | macOS has no network namespaces |
@@ -677,7 +682,7 @@ These limits are MANDATORY and applied to every execution:
 
 | Layer | Status | Requirements | Description |
 |-------|--------|--------------|-------------|
-| Job Objects | ❌ **BROKEN** | None | ❌ Limits NOT applied (CLIENT-CRIT-004, CLIENT-CRIT-005) |
+| Job Objects | ❌ **BROKEN** | None | ❌ Limits NOT applied |
 | Timeout | ✅ ENABLED | None | Parent monitors and kills child (ONLY working control) |
 | Network Isolation | ❌ UNSUPPORTED | WFP/drivers | No network isolation without kernel components |
 | Filesystem | ⚠️ DEGRADED | ACLs | Standard Windows ACL enforcement only |
@@ -717,9 +722,21 @@ Working directory isolated, HOME set to workdir.
 
 ### Subprocess Control
 
-- **Linux**: seccomp can block fork/exec (future enhancement)
-- **macOS**: RLIMIT_NPROC limits total processes
-- **Windows**: Job Object limits active processes
+- **Linux**: seccomp can block fork/exec (not yet implemented; claimed available but no code)
+- **macOS**: RLIMIT_NPROC NOT applied to child (bug); `sandbox-exec` can deny process-fork (not implemented)
+- **Windows**: Job Object limits NOT applied (NO-OP bug); Process Mitigation Policies can block child creation (not implemented)
 
 Manifest must declare subprocess: true to spawn children.
+
+---
+
+## Cross-Reference: Detailed Sandbox Documentation
+
+For detailed analysis of each platform's available mechanisms, bugs, and roadmap:
+
+- **macOS**: [MACOS_SANDBOX.md](MACOS_SANDBOX.md) — sandbox-exec, rlimit bug, SBPL profiles
+- **Windows**: [WINDOWS_SANDBOX.md](WINDOWS_SANDBOX.md) — Job Object NO-OP bug, AppContainers, Restricted Tokens
+- **Linux**: [LINUX_SANDBOX.md](LINUX_SANDBOX.md) — Implementation details + unimplemented mechanisms (user NS, seccomp, Landlock)
+- **Vulnerabilities**: [SECURITY_SANDBOX_LIMITATIONS.md](SECURITY_SANDBOX_LIMITATIONS.md) — Critical bugs and attack vectors
+- **Roadmap**: [SANDBOX_ROADMAP.md](SANDBOX_ROADMAP.md) — Prioritized improvement plan across all platforms
 

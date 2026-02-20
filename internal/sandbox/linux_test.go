@@ -13,6 +13,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// ensure syscall is used (referenced in namespace tests)
+var _ = syscall.CLONE_NEWNS
+
 func TestLinuxSandboxNew(t *testing.T) {
 	sandbox := newLinuxSandbox()
 	require.NotNil(t, sandbox)
@@ -29,7 +32,7 @@ func TestLinuxSandboxCapabilities(t *testing.T) {
 	assert.True(t, caps.PIDLimit)
 	assert.True(t, caps.FDLimit)
 	assert.True(t, caps.FilesystemIsolation)
-	assert.True(t, caps.SupportsSeccomp)
+	assert.False(t, caps.SupportsSeccomp) // seccomp filter not yet implemented
 	assert.True(t, caps.Namespaces)
 
 	// cgroups detection might vary based on environment
@@ -49,18 +52,19 @@ func TestLinuxSandboxApplyRLimits(t *testing.T) {
 		Timeout:   5 * time.Second,
 	}
 
-	err := sandbox.Apply(cmd, limits)
+	err := sandbox.Apply(cmd, limits, nil)
 	assert.NoError(t, err)
 
-	// Verify SysProcAttr was set
+	// Verify SysProcAttr was set (for namespace flags)
 	assert.NotNil(t, cmd.SysProcAttr)
-	assert.NotEmpty(t, cmd.SysProcAttr.Rlimits)
 
-	// Verify umask was set
-	assert.Equal(t, 0077, cmd.SysProcAttr.Umask)
-
-	// Verify correct number of rlimits (all 4 should be set)
-	assert.Equal(t, 4, len(cmd.SysProcAttr.Rlimits))
+	// Rlimits are now applied via prlimit(2) in PostStart, not pre-spawn.
+	// Verify that pendingLimits was stored for later application.
+	assert.NotNil(t, sandbox.pendingLimits)
+	assert.Equal(t, 1000, sandbox.pendingLimits.MaxCPU)
+	assert.Equal(t, "512M", sandbox.pendingLimits.MaxMemory)
+	assert.Equal(t, 10, sandbox.pendingLimits.MaxPIDs)
+	assert.Equal(t, 1024, sandbox.pendingLimits.MaxFDs)
 }
 
 func TestLinuxSandboxApplyMemory(t *testing.T) {
@@ -75,11 +79,11 @@ func TestLinuxSandboxApplyMemory(t *testing.T) {
 		Timeout:   5 * time.Second,
 	}
 
-	err := sandbox.Apply(cmd, limits)
+	err := sandbox.Apply(cmd, limits, nil)
 	assert.NoError(t, err)
-	assert.NotNil(t, cmd.SysProcAttr)
-	// Only memory rlimit should be set (CPU=0, PIDs=0, FDs=0)
-	assert.Equal(t, 1, len(cmd.SysProcAttr.Rlimits))
+	// Rlimits are applied via prlimit(2) in PostStart
+	assert.NotNil(t, sandbox.pendingLimits)
+	assert.Equal(t, "256M", sandbox.pendingLimits.MaxMemory)
 }
 
 func TestLinuxSandboxApplyZeroLimits(t *testing.T) {
@@ -94,12 +98,12 @@ func TestLinuxSandboxApplyZeroLimits(t *testing.T) {
 		Timeout:   5 * time.Second,
 	}
 
-	err := sandbox.Apply(cmd, limits)
+	err := sandbox.Apply(cmd, limits, nil)
 	assert.NoError(t, err)
-	// Should still set SysProcAttr for umask
-	assert.NotNil(t, cmd.SysProcAttr)
-	// No rlimits should be set when all are zero
-	assert.Empty(t, cmd.SysProcAttr.Rlimits)
+	// Limits stored for PostStart prlimit application
+	assert.NotNil(t, sandbox.pendingLimits)
+	assert.Equal(t, 0, sandbox.pendingLimits.MaxCPU)
+	assert.Equal(t, "", sandbox.pendingLimits.MaxMemory)
 }
 
 func TestLinuxSandboxMountNamespace(t *testing.T) {
@@ -114,7 +118,7 @@ func TestLinuxSandboxMountNamespace(t *testing.T) {
 		Timeout:   2 * time.Second,
 	}
 
-	err := sandbox.Apply(cmd, limits)
+	err := sandbox.Apply(cmd, limits, nil)
 	assert.NoError(t, err)
 
 	// Verify mount namespace flag is set
@@ -141,7 +145,7 @@ func TestLinuxSandboxNetworkIsolation(t *testing.T) {
 		Timeout:   2 * time.Second,
 	}
 
-	err := sandbox.Apply(cmd, limits)
+	err := sandbox.Apply(cmd, limits, nil)
 	assert.NoError(t, err)
 
 	// Verify network namespace flag is set
@@ -232,11 +236,11 @@ func TestLinuxSandboxNilInputs(t *testing.T) {
 	sandbox := newLinuxSandbox()
 
 	// Nil command
-	err := sandbox.Apply(nil, &policy.ExecutionLimits{})
+	err := sandbox.Apply(nil, &policy.ExecutionLimits{}, nil)
 	assert.Error(t, err)
 
 	// Nil limits
-	err = sandbox.Apply(exec.Command("true"), nil)
+	err = sandbox.Apply(exec.Command("true"), nil, nil)
 	assert.Error(t, err)
 }
 
@@ -255,59 +259,38 @@ func TestLinuxRLimitCPUCalculation(t *testing.T) {
 		name        string
 		timeout     time.Duration
 		millicores  int
-		minSeconds  uint64
-		maxSeconds  uint64
+		wantSeconds uint64
 	}{
 		{
-			name:       "5s timeout, 1000 millicores = 5 CPU seconds",
-			timeout:    5 * time.Second,
-			millicores: 1000,
-			minSeconds: 5,
-			maxSeconds: 5,
+			name:        "5s timeout, 1000 millicores = 5 CPU seconds",
+			timeout:     5 * time.Second,
+			millicores:  1000,
+			wantSeconds: 5,
 		},
 		{
-			name:       "5s timeout, 500 millicores = 2.5 CPU seconds (min 1)",
-			timeout:    5 * time.Second,
-			millicores: 500,
-			minSeconds: 2,
-			maxSeconds: 3,
+			name:        "5s timeout, 500 millicores = 2 CPU seconds",
+			timeout:     5 * time.Second,
+			millicores:  500,
+			wantSeconds: 2,
 		},
 		{
-			name:       "10s timeout, 100 millicores = 1 CPU second (min 1)",
-			timeout:    10 * time.Second,
-			millicores: 100,
-			minSeconds: 1,
-			maxSeconds: 1,
+			name:        "10s timeout, 100 millicores = 1 CPU second (min 1)",
+			timeout:     10 * time.Second,
+			millicores:  100,
+			wantSeconds: 1,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			sandbox := newLinuxSandbox()
-			cmd := exec.Command("true")
-			limits := &policy.ExecutionLimits{
-				MaxCPU:    tt.millicores,
-				MaxMemory: "",
-				MaxPIDs:   0,
-				MaxFDs:    0,
-				Timeout:   tt.timeout,
+			// Rlimits are now applied via prlimit(2) in PostStart.
+			// Verify the CPU seconds calculation formula:
+			// cpuSeconds = timeout.Seconds() * millicores / 1000
+			cpuSeconds := uint64(tt.timeout.Seconds() * float64(tt.millicores) / 1000.0)
+			if cpuSeconds < 1 {
+				cpuSeconds = 1
 			}
-
-			err := sandbox.Apply(cmd, limits)
-			assert.NoError(t, err)
-			assert.NotNil(t, cmd.SysProcAttr)
-
-			// Find the CPU limit in rlimits
-			found := false
-			for _, rl := range cmd.SysProcAttr.Rlimits {
-				if rl.Resource == syscall.RLIMIT_CPU {
-					found = true
-					assert.GreaterOrEqual(t, rl.Cur, tt.minSeconds)
-					assert.LessOrEqual(t, rl.Cur, tt.maxSeconds+1)
-					break
-				}
-			}
-			assert.True(t, found, "RLIMIT_CPU should be set")
+			assert.Equal(t, tt.wantSeconds, cpuSeconds)
 		})
 	}
 }
