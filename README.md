@@ -1,10 +1,10 @@
 <p align="center">
   <h1 align="center">mcp</h1>
   <p align="center">
-    <strong>The secure launcher for MCP servers</strong>
+    <strong>The execution layer of MCP Hub Platform</strong>
   </p>
   <p align="center">
-    Download, validate, sandbox, and execute MCP servers — with integrity checks, resource limits, and audit logging built in.
+    Resolve, validate, sandbox, and execute certified MCP servers — the last mile of a trust pipeline that starts with automated security analysis.
   </p>
   <p align="center">
     <a href="https://github.com/security-mcp/mcp-client/actions"><img src="https://github.com/security-mcp/mcp-client/workflows/CI/badge.svg" alt="CI"></a>
@@ -12,39 +12,84 @@
     <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License: MIT"></a>
     <a href="go.mod"><img src="https://img.shields.io/badge/Go-1.24+-00ADD8?logo=go&logoColor=white" alt="Go Version"></a>
     <a href="https://github.com/security-mcp/mcp-client/releases"><img src="https://img.shields.io/github/v/release/security-mcp/mcp-client?color=orange" alt="Release"></a>
+    <a href="https://mcp-hub.info"><img src="https://img.shields.io/badge/ecosystem-MCP%20Hub%20Platform-blueviolet" alt="MCP Hub Platform"></a>
   </p>
 </p>
 
 ---
 
-## The problem
+## Why MCP Hub exists
 
-Today, running an MCP server means trusting it blindly:
+MCP (Model Context Protocol) is transforming how AI agents interact with external tools. Instead of ad-hoc integrations, MCP provides a standard protocol: agents connect to MCP servers that expose capabilities — file access, database queries, API calls, code execution. The ecosystem is growing fast. Thousands of MCP servers already exist, and every AI framework is adding native MCP support.
+
+But there is a fundamental trust problem. Today, running an MCP server means executing arbitrary code with the full permissions of your user account. The standard workflow looks like this:
 
 ```bash
-# With uvx or npx, you're running arbitrary code with full system access
+# This runs arbitrary code with your full system access
 uvx some-mcp-server
 npx @someone/mcp-tool
 ```
 
-No integrity checks. No resource limits. No sandboxing. No audit trail. The MCP server gets the same permissions as your user account — full access to your filesystem, network, and environment variables. If the package is compromised, you won't know until it's too late.
+No integrity verification. No resource limits. No sandboxing. No audit trail. The package could exfiltrate your SSH keys, mine crypto in the background, or pivot through your network — and you would not know until it is too late. For individual developers experimenting, this might be an acceptable risk. For organizations deploying MCP servers in production, connected to internal databases and APIs, it is not.
 
-## The solution
+**MCP Hub Platform** is the trust infrastructure that closes this gap. It is an end-to-end pipeline: publish MCP server source code, automatically analyze it for 14 classes of security vulnerabilities, compute a deterministic certification score, distribute the certified artifact through a content-addressed registry, and execute it with runtime sandboxing and policy enforcement. Every step is auditable. Every artifact is immutable. Every execution is logged.
 
-**`mcp`** adds a trust layer between you and MCP servers:
+The platform is built as four independent components that form a pipeline:
 
-```bash
-# Validated, sandboxed, audited execution
-mcp run acme/hello-world@1.2.3
+- **[mcp-hub](https://mcp-hub.info)** — Control plane. Ingests source code, orchestrates security analysis, computes certification scores, publishes certified artifacts.
+- **[mcp-scan](https://github.com/security-mcp/mcp-scan)** — Analysis engine. Static security analyzer that detects 14 vulnerability classes (A-N) using pattern matching, taint analysis, and optional AI detection. Supports Python, TypeScript, JavaScript, and Go.
+- **[mcp-registry](https://github.com/security-mcp/mcp-registry)** — Data plane. Content-addressed artifact distribution with SHA-256 integrity, JWT authentication, and scope-based authorization.
+- **mcp-client** (this repository) — Execution plane. The last mile — where all upstream certification materializes as runtime enforcement.
+
+## How the platform works
+
+```
+Developer
+    |  mcp push / git commit
+    v
+[mcp-hub]  ──AMQP: ANALYZE job──>  [mcp-scan worker]
+    |                                     |
+    |  <──AMQP: ANALYZE_COMPLETE──────────┘
+    |
+    |  score (0-100) → cert_level (0-3)
+    |  publishes certified artifact
+    v
+[mcp-registry]  ── content-addressed storage (SHA-256)
+    ^
+    |  resolve + download + validate
+    |
+[mcp-client]  ── policy check → sandbox → execute → audit
+    |
+    v
+MCP Server (isolated, resource-limited, audited)
 ```
 
-Every package is **integrity-verified** (SHA-256), **sandboxed** (resource limits + process isolation), and **audited** (structured JSON logs). You know exactly what you're running, what it can access, and what it did.
+1. **Ingest** — Developer pushes MCP server source to mcp-hub (Git repo, webhook, or CLI upload)
+2. **Analyze** — mcp-scan runs static analysis: 14 vulnerability classes, taint tracking, pattern matching
+3. **Certify** — Hub computes deterministic score (0-100), maps to certification level (0-3)
+4. **Distribute** — Certified artifact published to mcp-registry with immutable SHA-256 digest
+5. **Execute** — mcp-client resolves, validates, enforces policy, sandboxes, and audits the execution
+
+## This repository: the execution layer
+
+`mcp` is where trust becomes enforcement. The upstream pipeline — analysis, scoring, certification — produces artifacts with known security properties. This client is responsible for making those properties matter at runtime.
+
+What `mcp` does:
+
+- **Resolves** packages from the registry by name, version, or content digest
+- **Validates** every manifest and bundle against its SHA-256 digest before use — no code path can bypass this
+- **Enforces** organizational policies: minimum certification level, allowed origins, environment filtering
+- **Sandboxes** processes with platform-specific isolation: CPU, memory, PID, and file descriptor limits; network default-deny; filesystem confinement
+- **Audits** every execution as structured JSON with automatic secret redaction
+
+This is not just a launcher. `uvx` and `npx` download and run. `mcp` downloads, validates, checks policy, confines, monitors, and logs. It is a runtime trust enforcement layer.
 
 ## Why `mcp` over `uvx` / `npx`?
 
 | | `uvx` / `npx` | `mcp` |
 |---|---|---|
 | **Integrity** | None. Runs whatever is downloaded | SHA-256 digest validation on every manifest and bundle |
+| **Supply chain verification** | None | Full certification pipeline: static analysis of 14 vulnerability classes, deterministic scoring, 4-level certification |
 | **Sandboxing** | None. Full system access | Process isolation with CPU, memory, PID, and FD limits |
 | **Network** | Unrestricted | Default-deny with allowlists (Linux) |
 | **Filesystem** | Full access | Confined to working directory (Linux) |
@@ -58,15 +103,17 @@ Every package is **integrity-verified** (SHA-256), **sandboxed** (resource limit
 ## Quick start
 
 ```bash
-# Install
-go install github.com/security-mcp/mcp-client/cmd/mcp@latest
+# Download the latest binary for your platform
+# See Installation below for all options
 
 # Check what your system supports
 mcp doctor
 
-# Run an MCP server
+# Run a certified MCP server
 mcp run acme/hello-world@1.2.3
 ```
+
+`mcp doctor` reports which security features are available on your system — cgroups, namespaces, seccomp, Landlock, and more. Start here to understand your security posture before running anything.
 
 ## Installation
 
@@ -124,16 +171,16 @@ mcp doctor      # shows available security features
 
 ## Usage
 
-### Run an MCP server
+### Execute
 
 ```bash
-# By version
+# Run by version
 mcp run acme/tool@1.2.3
 
-# Latest version
+# Run latest version
 mcp run acme/tool@latest
 
-# By content digest
+# Run by content digest (exact artifact)
 mcp run acme/tool@sha256:a1b2c3...
 
 # With timeout and env vars
@@ -141,62 +188,45 @@ mcp run acme/tool@1.0.0 --timeout 10m --env API_KEY=secret
 
 # Force re-download (skip cache)
 mcp run acme/tool@1.0.0 --no-cache
-```
 
-### Pre-download packages
-
-```bash
-# Pull without executing — useful for CI/CD warm-up
+# Pre-download without executing (useful for CI/CD warm-up)
 mcp pull acme/tool@1.2.3
 
-# Subsequent runs are instant (served from cache)
-mcp run acme/tool@1.2.3
-```
-
-### Publish a package
-
-```bash
-# Authenticate first
-mcp login --token YOUR_TOKEN
-
-# Push to the hub
-mcp push acme/my-tool@1.0.0 --source ./dist
-```
-
-### Inspect a package
-
-```bash
+# Inspect a package before running
 mcp info acme/tool@1.2.3          # human-readable
 mcp info acme/tool@1.2.3 --json   # machine-readable
 ```
 
-### Manage cache
+### Manage
 
 ```bash
-mcp cache ls                      # list cached artifacts
-mcp cache ls --json               # JSON output
-mcp cache rm sha256:abc123...     # remove specific artifact
-mcp cache rm --all                # clear everything
+# List cached artifacts
+mcp cache ls
+mcp cache ls --json
+
+# Remove specific artifact
+mcp cache rm sha256:abc123...
+
+# Clear everything
+mcp cache rm --all
+
+# Diagnose system sandbox capabilities
+mcp doctor
 ```
 
-### Authentication
+### Auth
 
 ```bash
-mcp login --token YOUR_TOKEN      # store credentials
-mcp logout                        # remove credentials
+# Store credentials
+mcp login --token YOUR_TOKEN
+
+# Remove credentials
+mcp logout
 
 # Or use environment variables
 export MCP_REGISTRY_TOKEN=YOUR_TOKEN
 mcp run acme/tool@1.0.0
 ```
-
-### Diagnose system capabilities
-
-```bash
-mcp doctor
-```
-
-Shows which security features are available on your platform: cgroups, namespaces, seccomp, Landlock, and more.
 
 ## Configuration
 
@@ -281,7 +311,7 @@ Resource limits are **mandatory** and **cannot be disabled**.
 
 ### Certification levels
 
-Packages are assigned a certification level (0-3) based on automated security analysis:
+Packages are assigned a certification level (0-3) based on automated security analysis upstream in mcp-hub:
 
 | Level | Name | What it means |
 |-------|------|---------------|
@@ -358,24 +388,6 @@ See [`docs/SECURITY.md`](./docs/SECURITY.md) for the full threat model.
 
 **Flow:** resolve package → download & validate → check policy → apply sandbox → execute → audit log
 
-```
-internal/
-├── cli/         # Cobra command handlers (9 commands)
-├── config/      # Configuration loading (YAML + env + flags)
-├── registry/    # Registry API client with auth & retries
-├── manifest/    # MCP manifest parsing and validation
-├── cache/       # Content-addressable SHA-256 cache
-├── policy/      # Security policy & resource limits
-├── executor/    # Process execution with sandbox
-├── sandbox/     # Platform-specific isolation
-│   ├── linux.go       # cgroups, namespaces, seccomp, Landlock
-│   ├── darwin.go      # rlimits, Seatbelt (limited)
-│   └── windows.go     # Job Objects, integrity levels
-├── audit/       # Structured JSON audit logging
-├── hub/         # Hub API client (push workflow)
-└── packaging/   # Bundle creation with security checks
-```
-
 ## Documentation
 
 | Document | Description |
@@ -404,19 +416,11 @@ internal/
 ```bash
 make build          # build binary
 make test           # run tests with race detection
-make test-coverage  # generate HTML coverage report
 make lint           # run linter
-make fmt            # format code
 make all            # format + lint + test + build
 ```
 
-### Project conventions
-
-- **3 direct dependencies** — Cobra (CLI), Viper (config), Testify (tests)
-- **Zero CGO** — `CGO_ENABLED=0` for fully static, cross-platform binaries
-- **GORM-style errors** — all errors wrapped with context (`fmt.Errorf("doing X: %w", err)`)
-- **Platform isolation via build tags** — `//go:build linux`, `//go:build darwin`, etc.
-- **Conventional Commits** — `feat:`, `fix:`, `docs:`, `refactor:`, `test:`
+See [`CONTRIBUTING.md`](./CONTRIBUTING.md) for full development guidelines.
 
 ## Contributing
 
@@ -429,5 +433,5 @@ MIT License — see [`LICENSE`](./LICENSE) for details.
 ---
 
 <p align="center">
-  Part of the <a href="https://github.com/security-mcp">MCP Hub Platform</a> — trust infrastructure for MCP servers.
+  Part of <a href="https://mcp-hub.info">MCP Hub Platform</a> — trust infrastructure for publishing, certifying, and running MCP servers.
 </p>
