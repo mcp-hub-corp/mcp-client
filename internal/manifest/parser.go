@@ -252,6 +252,9 @@ func parseHubManifest(data []byte) (*Manifest, error) {
 	}
 
 	// Map permissions
+	// Hub manifests don't have a subprocess field; default to allowing subprocess
+	// since system commands (uv, node) require spawning child processes.
+	m.Permissions.Subprocess = true
 	if hm.Permissions != nil {
 		if hm.Permissions.Network != nil {
 			m.Permissions.Network = hm.Permissions.Network.Outbound

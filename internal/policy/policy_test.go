@@ -28,7 +28,7 @@ func TestNewPolicy(t *testing.T) {
 	assert.Equal(t, 10, p.MaxPIDs)
 	assert.Equal(t, 100, p.MaxFDs)
 	assert.Equal(t, 5*time.Minute, p.DefaultTimeout)
-	assert.False(t, p.AllowSubprocess)
+	assert.True(t, p.AllowSubprocess)
 }
 
 func TestNewPolicyWithLogger(t *testing.T) {
@@ -56,6 +56,8 @@ func TestApplyManifestPermissions(t *testing.T) {
 		Timeout:   5 * time.Minute,
 	}
 	p := NewPolicy(cfg)
+	// Allow subprocess so the manifest permission is accepted
+	p.AllowSubprocess = true
 
 	m := &manifest.Manifest{
 		Permissions: manifest.PermissionsInfo{
@@ -70,6 +72,29 @@ func TestApplyManifestPermissions(t *testing.T) {
 
 	assert.Equal(t, 2, len(p.NetworkAllowlist))
 	assert.Equal(t, 2, len(p.EnvAllowlist))
+}
+
+func TestApplyManifestPermissions_SubprocessDenied(t *testing.T) {
+	cfg := &config.Config{
+		MaxCPU:    1000,
+		MaxMemory: "512M",
+		MaxPIDs:   10,
+		MaxFDs:    100,
+		Timeout:   5 * time.Minute,
+	}
+	p := NewPolicy(cfg)
+	// Explicitly deny subprocess via policy override
+	p.AllowSubprocess = false
+
+	m := &manifest.Manifest{
+		Permissions: manifest.PermissionsInfo{
+			Subprocess: true,
+		},
+	}
+
+	err := p.ApplyManifestPermissions(m)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "subprocess permission denied")
 }
 
 func TestApplyManifestPermissions_Nil(t *testing.T) {

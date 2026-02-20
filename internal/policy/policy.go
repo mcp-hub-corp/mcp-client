@@ -43,7 +43,7 @@ func NewPolicy(cfg *config.Config) *Policy {
 		MaxPIDs:         cfg.MaxPIDs,
 		MaxFDs:          cfg.MaxFDs,
 		DefaultTimeout:  cfg.Timeout,
-		AllowSubprocess: false, // default deny
+		AllowSubprocess: true, // trust manifest permissions
 		CertLevelPolicy: NewCertLevelPolicyWithLogger(cfg.Policy.MinCertLevel, cfg.Policy.CertLevelMode, logger),
 		logger:          logger,
 	}
@@ -57,7 +57,7 @@ func NewPolicyWithLogger(cfg *config.Config, logger *slog.Logger) *Policy {
 		MaxPIDs:         cfg.MaxPIDs,
 		MaxFDs:          cfg.MaxFDs,
 		DefaultTimeout:  cfg.Timeout,
-		AllowSubprocess: false, // default deny
+		AllowSubprocess: true, // trust manifest permissions
 		CertLevelPolicy: NewCertLevelPolicyWithLogger(cfg.Policy.MinCertLevel, cfg.Policy.CertLevelMode, logger),
 		logger:          logger,
 	}
@@ -71,10 +71,9 @@ func (p *Policy) ApplyManifestPermissions(m *manifest.Manifest) error {
 
 	// Check subprocess permission
 	if m.Permissions.Subprocess && !p.AllowSubprocess {
-		p.logger.Warn("manifest requests subprocess but policy denies",
+		p.logger.Error("manifest requests subprocess but policy denies",
 			slog.String("package", m.Package.ID))
-		// Note: We still allow it for this phase, just log it
-		// In production, this might be a failure point based on policy
+		return fmt.Errorf("subprocess permission denied by policy for package %s", m.Package.ID)
 	}
 
 	// Store network allowlist from manifest

@@ -3,10 +3,13 @@
 package sandbox
 
 import (
+	"os"
 	"os/exec"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/security-mcp/mcp-client/internal/manifest"
 	"github.com/security-mcp/mcp-client/internal/policy"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -22,22 +25,34 @@ func TestDarwinSandboxCapabilities(t *testing.T) {
 	sandbox := newDarwinSandbox()
 	caps := sandbox.Capabilities()
 
-	// macOS supports basic resource limits via rlimits
-	assert.True(t, caps.CPULimit)
-	assert.True(t, caps.MemoryLimit)
-	assert.True(t, caps.PIDLimit)
+	// macOS does NOT support rlimit-based resource limits on child processes
+	// (Setrlimit applies to the parent, not the child)
+	assert.False(t, caps.CPULimit)
+	assert.False(t, caps.MemoryLimit)
+	assert.False(t, caps.PIDLimit)
+	assert.False(t, caps.FDLimit)
 
-	// But not these advanced features
-	assert.False(t, caps.NetworkIsolation)
+	// No Linux-specific features
 	assert.False(t, caps.Cgroups)
 	assert.False(t, caps.Namespaces)
-	assert.False(t, caps.FilesystemIsolation)
+	assert.False(t, caps.SupportsSeccomp)
+
+	// sandbox-exec availability depends on system
+	if sandbox.hasSandboxExec {
+		assert.True(t, caps.NetworkIsolation)
+		assert.True(t, caps.FilesystemIsolation)
+		assert.True(t, caps.SupportsSandboxExec)
+	} else {
+		assert.False(t, caps.NetworkIsolation)
+		assert.False(t, caps.FilesystemIsolation)
+		assert.False(t, caps.SupportsSandboxExec)
+	}
 
 	// Should have warnings
 	assert.NotEmpty(t, caps.Warnings)
 }
 
-func TestDarwinSandboxApplyRLimits(t *testing.T) {
+func TestDarwinSandboxApply(t *testing.T) {
 	sandbox := newDarwinSandbox()
 	cmd := exec.Command("true")
 
@@ -49,28 +64,81 @@ func TestDarwinSandboxApplyRLimits(t *testing.T) {
 		Timeout:   5 * time.Second,
 	}
 
-	err := sandbox.Apply(cmd, limits)
+	err := sandbox.Apply(cmd, limits, nil)
 	assert.NoError(t, err)
 
-	// On macOS, SysProcAttr will be set but Rlimits not directly accessible
-	// (different from Linux implementation)
+	// If sandbox-exec available, command should be rewritten
+	if sandbox.hasSandboxExec {
+		assert.Equal(t, "/usr/bin/sandbox-exec", cmd.Path)
+		assert.Equal(t, "sandbox-exec", cmd.Args[0])
+		assert.Equal(t, "-f", cmd.Args[1])
+		// Profile path should exist
+		assert.FileExists(t, cmd.Args[2])
+	}
 }
 
-func TestDarwinSandboxApplyPartialLimits(t *testing.T) {
+func TestDarwinSandboxApplyWithPerms(t *testing.T) {
 	sandbox := newDarwinSandbox()
-	cmd := exec.Command("true")
+	if !sandbox.hasSandboxExec {
+		t.Skip("sandbox-exec not available")
+	}
+
+	cmd := exec.Command("/usr/bin/true")
+	cmd.Dir = t.TempDir()
 
 	limits := &policy.ExecutionLimits{
-		MaxCPU:    0, // No CPU limit
-		MaxMemory: "256M",
-		MaxPIDs:   0,
-		MaxFDs:    0,
+		MaxCPU:    1000,
+		MaxMemory: "512M",
+		MaxPIDs:   10,
+		MaxFDs:    1024,
 		Timeout:   5 * time.Second,
 	}
 
-	err := sandbox.Apply(cmd, limits)
+	perms := &manifest.PermissionsInfo{
+		Network:    []string{"example.com"},
+		Subprocess: false,
+		FileSystem: []string{"/tmp/test"},
+	}
+
+	err := sandbox.Apply(cmd, limits, perms)
 	assert.NoError(t, err)
-	assert.NotNil(t, cmd.SysProcAttr)
+	assert.Equal(t, "/usr/bin/sandbox-exec", cmd.Path)
+}
+
+func TestDarwinSandboxCleanup(t *testing.T) {
+	sandbox := newDarwinSandbox()
+	if !sandbox.hasSandboxExec {
+		t.Skip("sandbox-exec not available")
+	}
+
+	cmd := exec.Command("/usr/bin/true")
+	limits := &policy.ExecutionLimits{
+		MaxCPU:    1000,
+		MaxMemory: "512M",
+		MaxPIDs:   10,
+		MaxFDs:    1024,
+		Timeout:   5 * time.Second,
+	}
+
+	err := sandbox.Apply(cmd, limits, nil)
+	require.NoError(t, err)
+
+	// Profile file should exist
+	profilePath := sandbox.profilePath
+	assert.NotEmpty(t, profilePath)
+	assert.FileExists(t, profilePath)
+
+	// Cleanup should remove it
+	err = sandbox.Cleanup(0)
+	assert.NoError(t, err)
+	assert.NoFileExists(t, profilePath)
+	assert.Empty(t, sandbox.profilePath)
+}
+
+func TestDarwinSandboxPostStart(t *testing.T) {
+	sandbox := newDarwinSandbox()
+	err := sandbox.PostStart(1234, &policy.ExecutionLimits{})
+	assert.NoError(t, err)
 }
 
 func TestDarwinParseMemoryString(t *testing.T) {
@@ -96,10 +164,96 @@ func TestDarwinSandboxNilInputs(t *testing.T) {
 	sandbox := newDarwinSandbox()
 
 	// Nil command
-	err := sandbox.Apply(nil, &policy.ExecutionLimits{})
+	err := sandbox.Apply(nil, &policy.ExecutionLimits{}, nil)
 	assert.Error(t, err)
 
 	// Nil limits
-	err = sandbox.Apply(exec.Command("true"), nil)
+	err = sandbox.Apply(exec.Command("true"), nil, nil)
 	assert.Error(t, err)
+}
+
+func TestGenerateSBPLProfile(t *testing.T) {
+	workDir := t.TempDir()
+
+	t.Run("default deny", func(t *testing.T) {
+		profilePath, err := generateSBPLProfile("/usr/bin/true", nil, workDir)
+		require.NoError(t, err)
+		defer os.Remove(profilePath)
+
+		content, err := os.ReadFile(profilePath)
+		require.NoError(t, err)
+
+		profile := string(content)
+		assert.Contains(t, profile, "(version 1)")
+		assert.Contains(t, profile, "(deny default)")
+		assert.Contains(t, profile, "(deny network*)")
+	})
+
+	t.Run("with network permissions", func(t *testing.T) {
+		perms := &manifest.PermissionsInfo{
+			Network: []string{"example.com"},
+		}
+
+		profilePath, err := generateSBPLProfile("/usr/bin/true", perms, workDir)
+		require.NoError(t, err)
+		defer os.Remove(profilePath)
+
+		content, err := os.ReadFile(profilePath)
+		require.NoError(t, err)
+
+		profile := string(content)
+		assert.Contains(t, profile, "(allow network*)")
+		assert.NotContains(t, profile, "(deny network*)")
+	})
+
+	t.Run("with filesystem permissions", func(t *testing.T) {
+		perms := &manifest.PermissionsInfo{
+			FileSystem: []string{"/opt/data", "/var/log"},
+		}
+
+		profilePath, err := generateSBPLProfile("/usr/bin/true", perms, workDir)
+		require.NoError(t, err)
+		defer os.Remove(profilePath)
+
+		content, err := os.ReadFile(profilePath)
+		require.NoError(t, err)
+
+		profile := string(content)
+		assert.Contains(t, profile, "/opt/data")
+		assert.Contains(t, profile, "/var/log")
+	})
+
+	t.Run("subprocess denied", func(t *testing.T) {
+		perms := &manifest.PermissionsInfo{
+			Subprocess: false,
+		}
+
+		profilePath, err := generateSBPLProfile("/usr/bin/true", perms, workDir)
+		require.NoError(t, err)
+		defer os.Remove(profilePath)
+
+		content, err := os.ReadFile(profilePath)
+		require.NoError(t, err)
+
+		profile := string(content)
+		assert.Contains(t, profile, "Subprocess restricted")
+	})
+
+	t.Run("includes work directory", func(t *testing.T) {
+		profilePath, err := generateSBPLProfile("/usr/bin/true", nil, workDir)
+		require.NoError(t, err)
+		defer os.Remove(profilePath)
+
+		content, err := os.ReadFile(profilePath)
+		require.NoError(t, err)
+
+		profile := string(content)
+		// Work dir should be allowed for read/write
+		assert.True(t, strings.Contains(profile, workDir) || strings.Contains(profile, "private/"))
+	})
+}
+
+func TestEscapeSBPLPath(t *testing.T) {
+	// Basic path should pass through
+	assert.Equal(t, "/usr/bin/test", escapeSBPLPath("/usr/bin/test"))
 }
