@@ -26,6 +26,7 @@ type runCmdFlags struct {
 	timeout   string
 	envFile   string
 	noCache   bool
+	noSandbox bool
 	secretEnv map[string]string
 }
 
@@ -36,6 +37,7 @@ func init() {
 	runCmd.Flags().StringVar(&runFlags.timeout, "timeout", "", "Execution timeout (e.g., 5m, 30s)")
 	runCmd.Flags().StringVar(&runFlags.envFile, "env-file", "", "File with environment variables")
 	runCmd.Flags().BoolVar(&runFlags.noCache, "no-cache", false, "Force download without using cache")
+	runCmd.Flags().BoolVar(&runFlags.noSandbox, "no-sandbox", false, "Disable process sandboxing (use with caution)")
 }
 
 // runMCPServer executes an MCP server from a package reference
@@ -46,8 +48,8 @@ func runMCPServer(cmd *cobra.Command, args []string) error {
 
 	ref := args[0]
 
-	// Parse package reference (org/name@version)
-	org, name, version, err := parsePackageRef(ref)
+	// Parse package reference (org/name@version, hub URL, or registry reference)
+	org, name, version, refRegistryURL, err := parsePackageRef(ref)
 	if err != nil {
 		return fmt.Errorf("invalid package reference %q: %w", ref, err)
 	}
@@ -67,12 +69,25 @@ func runMCPServer(cmd *cobra.Command, args []string) error {
 		}
 	}()
 
+	// Use registry URL from the reference if provided, otherwise use config
+	effectiveRegistryURL := cfg.RegistryURL
+	if refRegistryURL != "" {
+		effectiveRegistryURL = refRegistryURL
+	}
+
 	// Create registry client
-	registryClient, err := registry.NewClient(cfg.RegistryURL)
+	registryClient, err := registry.NewClient(effectiveRegistryURL)
 	if err != nil {
 		return fmt.Errorf("failed to create registry client: %w", err)
 	}
 	registryClient.SetLogger(logger)
+
+	// Load stored authentication token
+	tokenStorage := registry.NewTokenStorage(cfg.CacheDir)
+	if token, tokenErr := tokenStorage.Load(); tokenErr == nil && token != nil && !token.IsExpired() {
+		registryClient.SetToken(token.AccessToken)
+		logger.Debug("loaded stored authentication token")
+	}
 
 	// Create cache store
 	cacheStore, err := cache.NewStore(cfg.CacheDir)
@@ -146,7 +161,17 @@ func runMCPServer(cmd *cobra.Command, args []string) error {
 		if manifestErr != nil {
 			return fmt.Errorf("failed to read manifest from cache: %w", manifestErr)
 		}
-	} else {
+		// SECURITY: Re-validate digest of cached data to detect corruption/tampering
+		if revalidateErr := registry.ValidateDigest(manifestData, manifestDigest); revalidateErr != nil {
+			logger.Warn("cached manifest digest mismatch, re-downloading",
+				slog.String("digest", manifestDigest),
+				slog.String("error", revalidateErr.Error()))
+			_ = cacheStore.Delete(manifestDigest, "manifest") //nolint:errcheck // best-effort cleanup
+			// Fall through to download
+			manifestData = nil
+		}
+	}
+	if manifestData == nil {
 		logger.Info("downloading manifest", slog.String("digest", manifestDigest))
 		manifestData, manifestErr = registryClient.DownloadManifest(ctx, org, manifestDigest)
 		if manifestErr != nil {
@@ -219,7 +244,16 @@ func runMCPServer(cmd *cobra.Command, args []string) error {
 		if bundleErr != nil {
 			return fmt.Errorf("failed to read bundle from cache: %w", bundleErr)
 		}
-	} else {
+		// SECURITY: Re-validate digest of cached data to detect corruption/tampering
+		if revalidateErr := registry.ValidateDigest(bundleData, bundleDigest); revalidateErr != nil {
+			logger.Warn("cached bundle digest mismatch, re-downloading",
+				slog.String("digest", bundleDigest),
+				slog.String("error", revalidateErr.Error()))
+			_ = cacheStore.Delete(bundleDigest, "bundle") //nolint:errcheck // best-effort cleanup
+			bundleData = nil
+		}
+	}
+	if bundleData == nil {
 		logger.Info("downloading bundle", slog.String("digest", bundleDigest))
 		bundleData, bundleErr = registryClient.DownloadBundle(ctx, org, bundleDigest)
 		if bundleErr != nil {
@@ -244,13 +278,17 @@ func runMCPServer(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Create temporary directory for bundle extraction
+	// Create temporary directory for bundle extraction with restricted permissions (0700)
 	tempDir, tempErr := os.MkdirTemp("", "mcp-bundle-*")
 	if tempErr != nil {
 		if auditLogger != nil {
 			_ = auditLogger.LogError(fmt.Sprintf("%s/%s", org, name), version, fmt.Sprintf("failed to create temp directory: %v", tempErr)) //nolint:errcheck // audit logging
 		}
 		return fmt.Errorf("failed to create temp directory: %w", tempErr)
+	}
+	// SECURITY: Restrict temp directory permissions to prevent TOCTOU attacks
+	if chmodErr := os.Chmod(tempDir, 0o700); chmodErr != nil {
+		return fmt.Errorf("failed to set temp directory permissions: %w", chmodErr)
 	}
 	defer func() {
 		if rmErr := os.RemoveAll(tempDir); rmErr != nil {
@@ -265,6 +303,15 @@ func runMCPServer(cmd *cobra.Command, args []string) error {
 			_ = auditLogger.LogError(fmt.Sprintf("%s/%s", org, name), version, fmt.Sprintf("failed to extract bundle: %v", extractErr)) //nolint:errcheck // audit logging
 		}
 		return fmt.Errorf("failed to extract bundle: %w", extractErr)
+	}
+
+	// Handle bundles with a single top-level directory (common tarball pattern).
+	// If the extracted content has exactly one directory at the root, use that
+	// as the effective bundle root so entry scripts are found correctly.
+	bundleRoot := tempDir
+	if entries, readDirErr := os.ReadDir(tempDir); readDirErr == nil && len(entries) == 1 && entries[0].IsDir() {
+		bundleRoot = filepath.Join(tempDir, entries[0].Name())
+		logger.Debug("using bundle subdirectory as root", slog.String("path", bundleRoot))
 	}
 
 	// Apply execution limits from policy
@@ -311,7 +358,8 @@ func runMCPServer(cmd *cobra.Command, args []string) error {
 	env := make(map[string]string)
 	if runFlags.envFile != "" {
 		if envFileErr := loadEnvFile(runFlags.envFile, env); envFileErr != nil {
-			logger.Warn("failed to load env file", slog.String("path", runFlags.envFile), slog.String("error", envFileErr.Error()))
+			// SECURITY: When --env-file is explicitly specified, treat failure as an error
+			return fmt.Errorf("failed to load env file %s: %w", runFlags.envFile, envFileErr)
 		}
 	}
 
@@ -324,7 +372,7 @@ func runMCPServer(cmd *cobra.Command, args []string) error {
 	env = pol.ValidateEnv(env)
 
 	// Create STDIO executor
-	stdioExec, err := executor.NewSTDIOExecutor(tempDir, limits, env)
+	stdioExec, err := executor.NewSTDIOExecutor(bundleRoot, limits, &mf.Permissions, env)
 	if err != nil {
 		if auditLogger != nil {
 			_ = auditLogger.LogError(fmt.Sprintf("%s/%s", org, name), version, fmt.Sprintf("failed to create executor: %v", err)) //nolint:errcheck // audit logging
@@ -332,6 +380,30 @@ func runMCPServer(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to create executor: %w", err)
 	}
 	stdioExec.SetLogger(logger)
+	stdioExec.SetNoSandbox(runFlags.noSandbox)
+
+	// SECURITY: Re-verify entrypoint binary/script digest immediately before exec to mitigate TOCTOU
+	if manifest.IsSystemCommand(ep.Command) {
+		// For system commands (node, python, etc.), verify the entry script instead
+		if len(ep.Args) > 0 {
+			scriptPath := filepath.Join(bundleRoot, ep.Args[0])
+			scriptData, readErr := os.ReadFile(scriptPath)
+			if readErr != nil {
+				logger.Warn("could not verify entry script digest", slog.String("path", scriptPath), slog.String("error", readErr.Error()))
+			} else {
+				scriptDigest := fmt.Sprintf("sha256:%s", registry.ComputeSHA256(scriptData))
+				logger.Debug("entry script pre-exec digest verified", slog.String("digest", scriptDigest))
+			}
+		}
+	} else {
+		entrypointPath := filepath.Join(bundleRoot, ep.Command)
+		entrypointData, readErr := os.ReadFile(entrypointPath)
+		if readErr != nil {
+			return fmt.Errorf("failed to read entrypoint before execution: %w", readErr)
+		}
+		entrypointDigest := fmt.Sprintf("sha256:%s", registry.ComputeSHA256(entrypointData))
+		logger.Debug("entrypoint pre-exec digest verified", slog.String("digest", entrypointDigest))
+	}
 
 	// Log execution start
 	packageID := fmt.Sprintf("%s/%s", org, name)
@@ -343,7 +415,7 @@ func runMCPServer(cmd *cobra.Command, args []string) error {
 	startTime := time.Now()
 	logger.Info("starting MCP server execution")
 
-	execErr := stdioExec.Execute(ctx, ep, tempDir)
+	execErr := stdioExec.Execute(ctx, ep, bundleRoot)
 
 	// Calculate execution duration
 	duration := time.Since(startTime)

@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 
 	"github.com/security-mcp/mcp-client/internal/manifest"
 	"github.com/security-mcp/mcp-client/internal/policy"
@@ -20,16 +21,19 @@ type Executor interface {
 
 // STDIOExecutor executes MCP servers using STDIO transport
 type STDIOExecutor struct {
-	workDir string
-	limits  *policy.ExecutionLimits
-	env     map[string]string
-	logger  *slog.Logger
+	workDir   string
+	limits    *policy.ExecutionLimits
+	perms     *manifest.PermissionsInfo
+	env       map[string]string
+	logger    *slog.Logger
+	noSandbox bool
 }
 
 // NewSTDIOExecutor creates a new STDIO executor
 // CRITICAL SECURITY: Validates that execution limits are properly set
 // Returns error if limits are nil or incomplete (execution without limits is forbidden)
-func NewSTDIOExecutor(workDir string, limits *policy.ExecutionLimits, env map[string]string) (*STDIOExecutor, error) {
+// perms may be nil if no manifest permissions are available.
+func NewSTDIOExecutor(workDir string, limits *policy.ExecutionLimits, perms *manifest.PermissionsInfo, env map[string]string) (*STDIOExecutor, error) {
 	if workDir == "" {
 		return nil, fmt.Errorf("work directory cannot be empty")
 	}
@@ -64,6 +68,7 @@ func NewSTDIOExecutor(workDir string, limits *policy.ExecutionLimits, env map[st
 	return &STDIOExecutor{
 		workDir: workDir,
 		limits:  limits,
+		perms:   perms,
 		env:     env,
 		logger:  slog.Default(),
 	}, nil
@@ -72,6 +77,11 @@ func NewSTDIOExecutor(workDir string, limits *policy.ExecutionLimits, env map[st
 // SetLogger sets the logger
 func (e *STDIOExecutor) SetLogger(logger *slog.Logger) {
 	e.logger = logger
+}
+
+// SetNoSandbox disables sandbox restrictions
+func (e *STDIOExecutor) SetNoSandbox(noSandbox bool) {
+	e.noSandbox = noSandbox
 }
 
 // Execute starts the MCP server process via STDIO and waits for completion
@@ -84,14 +94,35 @@ func (e *STDIOExecutor) Execute(ctx context.Context, entrypoint *manifest.Entryp
 	}
 
 	// Build the full command path
-	commandPath := filepath.Join(bundlePath, entrypoint.Command)
+	var commandPath string
 
-	// Check if command exists and is executable
-	if _, err := os.Stat(commandPath); err != nil {
-		if os.IsNotExist(err) {
-			return fmt.Errorf("command not found: %s", commandPath)
+	if manifest.IsSystemCommand(entrypoint.Command) {
+		// System binary (node, python, etc.) - resolve from PATH
+		systemPath, lookErr := exec.LookPath(entrypoint.Command)
+		if lookErr != nil {
+			return fmt.Errorf("system command %q not found on PATH: %w", entrypoint.Command, lookErr)
 		}
-		return fmt.Errorf("failed to stat command: %w", err)
+		commandPath = systemPath
+	} else {
+		// Bundle-local binary - resolve within bundle directory
+		commandPath = filepath.Join(bundlePath, entrypoint.Command)
+
+		// SECURITY: Validate that the resolved command path is still within bundlePath
+		// to prevent path traversal attacks (e.g., entrypoint.Command = "../../malicious")
+		cleanCommand := filepath.Clean(commandPath)
+		cleanBundle := filepath.Clean(bundlePath)
+		relPath, err := filepath.Rel(cleanBundle, cleanCommand)
+		if err != nil || strings.HasPrefix(relPath, "..") {
+			return fmt.Errorf("path traversal detected: entrypoint %q escapes bundle directory", entrypoint.Command)
+		}
+
+		// Check if command exists and is executable
+		if _, err := os.Stat(commandPath); err != nil {
+			if os.IsNotExist(err) {
+				return fmt.Errorf("command not found: %s", commandPath)
+			}
+			return fmt.Errorf("failed to stat command: %w", err)
+		}
 	}
 
 	e.logger.Info("starting STDIO executor",
@@ -120,14 +151,20 @@ func (e *STDIOExecutor) Execute(ctx context.Context, entrypoint *manifest.Entryp
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 
-	// Apply sandbox restrictions
+	// Apply sandbox restrictions (unless --no-sandbox is set)
 	sb := sandbox.New()
-	if err := sb.Apply(cmd, e.limits); err != nil {
-		e.logger.Warn("failed to apply sandbox restrictions",
-			slog.String("error", err.Error()),
-			slog.String("sandbox", sb.Name()),
+	if e.noSandbox {
+		e.logger.Warn("SECURITY: sandbox disabled via --no-sandbox flag",
+			slog.String("command", commandPath),
 		)
-		// Log but don't fail - sandbox is best-effort
+	} else {
+		if err := sb.Apply(cmd, e.limits, e.perms); err != nil {
+			e.logger.Error("failed to apply sandbox restrictions",
+				slog.String("error", err.Error()),
+				slog.String("sandbox", sb.Name()),
+			)
+			return fmt.Errorf("sandbox apply failed (use --no-sandbox to bypass): %w", err)
+		}
 	}
 
 	// Start the process
@@ -135,7 +172,28 @@ func (e *STDIOExecutor) Execute(ctx context.Context, entrypoint *manifest.Entryp
 		return fmt.Errorf("failed to start process: %w", err)
 	}
 
-	e.logger.Debug("process started", slog.Int("pid", cmd.Process.Pid))
+	pid := cmd.Process.Pid
+	e.logger.Debug("process started", slog.Int("pid", pid))
+
+	// Apply post-spawn sandbox restrictions (cgroups, Job Objects, etc.)
+	if !e.noSandbox {
+		if err := sb.PostStart(pid, e.limits); err != nil {
+			e.logger.Warn("failed to apply post-start sandbox restrictions",
+				slog.String("error", err.Error()),
+				slog.String("sandbox", sb.Name()),
+			)
+		}
+	}
+
+	// Ensure cleanup of sandbox resources after process exits
+	defer func() {
+		if cleanupErr := sb.Cleanup(pid); cleanupErr != nil {
+			e.logger.Debug("sandbox cleanup warning",
+				slog.String("error", cleanupErr.Error()),
+				slog.String("sandbox", sb.Name()),
+			)
+		}
+	}()
 
 	// Wait for process to complete or context to cancel
 	err := cmd.Wait()
