@@ -364,13 +364,13 @@ func (s *LinuxSandbox) applyCgroupsV2(pid int, limits *policy.ExecutionLimits) e
 	cgroupPath := filepath.Join(s.cgroupManager.rootPath, cgroupName)
 
 	// Attempt to create cgroup directory
-	if err := os.Mkdir(cgroupPath, 0750); err != nil {
+	if err := os.Mkdir(cgroupPath, 0o750); err != nil {
 		return fmt.Errorf("cannot create cgroup directory (may require elevated privileges): %w", err)
 	}
 
 	// Add process to cgroup
 	cgroupProcsPath := filepath.Join(cgroupPath, "cgroup.procs")
-	if err := os.WriteFile(cgroupProcsPath, []byte(strconv.Itoa(pid)), 0600); err != nil {
+	if err := os.WriteFile(cgroupProcsPath, []byte(strconv.Itoa(pid)), 0o600); err != nil {
 		// Clean up failed cgroup
 		_ = os.RemoveAll(cgroupPath)
 		return fmt.Errorf("cannot add process to cgroup: %w", err)
@@ -386,7 +386,7 @@ func (s *LinuxSandbox) applyCgroupsV2(pid int, limits *policy.ExecutionLimits) e
 		period := int64(100000) // 100ms standard period
 		quota, _ := calculateCPUQuota(limits.MaxCPU, period)
 		cpuMax := fmt.Sprintf("%d %d", quota, period)
-		if err := os.WriteFile(filepath.Join(cgroupPath, "cpu.max"), []byte(cpuMax), 0600); err != nil {
+		if err := os.WriteFile(filepath.Join(cgroupPath, "cpu.max"), []byte(cpuMax), 0o600); err != nil {
 			s.logger.Debug("failed to set cpu.max", slog.String("error", err.Error()))
 		} else {
 			s.logger.Debug("cpu.max set via cgroups v2", slog.String("value", cpuMax))
@@ -398,7 +398,7 @@ func (s *LinuxSandbox) applyCgroupsV2(pid int, limits *policy.ExecutionLimits) e
 		memBytes := parseMemoryString(limits.MaxMemory)
 		if memBytes > 0 {
 			memStr := strconv.FormatInt(memBytes, 10)
-			if err := os.WriteFile(filepath.Join(cgroupPath, "memory.max"), []byte(memStr), 0600); err != nil {
+			if err := os.WriteFile(filepath.Join(cgroupPath, "memory.max"), []byte(memStr), 0o600); err != nil {
 				s.logger.Debug("failed to set memory.max", slog.String("error", err.Error()))
 			} else {
 				s.logger.Debug("memory.max set via cgroups v2", slog.String("bytes", memStr))
@@ -409,7 +409,7 @@ func (s *LinuxSandbox) applyCgroupsV2(pid int, limits *policy.ExecutionLimits) e
 	// Apply PID limit (best-effort)
 	if limits.MaxPIDs > 0 {
 		pidsStr := strconv.Itoa(limits.MaxPIDs)
-		if err := os.WriteFile(filepath.Join(cgroupPath, "pids.max"), []byte(pidsStr), 0600); err != nil {
+		if err := os.WriteFile(filepath.Join(cgroupPath, "pids.max"), []byte(pidsStr), 0o600); err != nil {
 			s.logger.Debug("failed to set pids.max", slog.String("error", err.Error()))
 		} else {
 			s.logger.Debug("pids.max set via cgroups v2", slog.String("count", pidsStr))

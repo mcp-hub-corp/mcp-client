@@ -124,7 +124,7 @@ func TestLinuxSandboxMountNamespace(t *testing.T) {
 	// Verify mount namespace flag is set
 	if cmd.SysProcAttr != nil {
 		// Mount namespace should be set (CLONE_NEWNS = 0x00020000)
-		assert.True(t, (cmd.SysProcAttr.Cloneflags & syscall.CLONE_NEWNS) != 0)
+		assert.True(t, (cmd.SysProcAttr.Cloneflags&syscall.CLONE_NEWNS) != 0)
 	}
 }
 
@@ -151,7 +151,7 @@ func TestLinuxSandboxNetworkIsolation(t *testing.T) {
 	// Verify network namespace flag is set
 	if cmd.SysProcAttr != nil {
 		// Network namespace should be set (CLONE_NEWNET = 0x40000000)
-		assert.True(t, (cmd.SysProcAttr.Cloneflags & syscall.CLONE_NEWNET) != 0)
+		assert.True(t, (cmd.SysProcAttr.Cloneflags&syscall.CLONE_NEWNET) != 0)
 	}
 }
 

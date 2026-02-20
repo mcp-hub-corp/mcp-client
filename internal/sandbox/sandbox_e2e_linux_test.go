@@ -153,8 +153,8 @@ func TestLinuxSandbox_CgroupsApplied(t *testing.T) {
 
 	// Verify cgroup directory was created
 	cgroupPath := filepath.Join(sb.cgroupPath, fmt.Sprintf("mcp-launcher-%d", pid))
-	if _, err := os.Stat(cgroupPath); err != nil {
-		t.Skipf("cgroup directory not created (permission issue): %v", err)
+	if _, statErr := os.Stat(cgroupPath); statErr != nil {
+		t.Skipf("cgroup directory not created (permission issue): %v", statErr)
 	}
 
 	// Verify memory.max was set
@@ -186,8 +186,8 @@ func TestLinuxSandbox_MemoryLimitEnforced(t *testing.T) {
 	}
 
 	// Verify we can actually write to cgroups (requires root or delegation)
-	testCgroup := filepath.Join("/sys/fs/cgroup", fmt.Sprintf("mcp-test-%d", os.Getpid()))
-	if err := os.Mkdir(testCgroup, 0750); err != nil {
+	testCgroup := fmt.Sprintf("/sys/fs/cgroup/mcp-test-%d", os.Getpid())
+	if err := os.Mkdir(testCgroup, 0o750); err != nil {
 		t.Skipf("cgroups v2 detected but not writable (need root or delegation): %v", err)
 	}
 	_ = os.Remove(testCgroup)
