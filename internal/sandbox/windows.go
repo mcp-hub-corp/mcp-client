@@ -35,6 +35,7 @@ type WindowsSandbox struct {
 	jobsMutex sync.RWMutex
 	jobs      map[uintptr]windows.Handle
 	// pendingLimits stores limits from Apply for use in PostStart
+	pendingMutex  sync.RWMutex
 	pendingLimits *policy.ExecutionLimits
 	// appContainerNames tracks created AppContainer profiles for cleanup
 	appContainerMutex sync.Mutex
@@ -77,7 +78,9 @@ func (s *WindowsSandbox) Apply(cmd *exec.Cmd, limits *policy.ExecutionLimits, pe
 	}
 
 	// Store limits for PostStart to use when assigning Job Object
+	s.pendingMutex.Lock()
 	s.pendingLimits = limits
+	s.pendingMutex.Unlock()
 
 	// Store limits metadata in process environment for reference
 	// (This is optional, just for informational purposes)
@@ -126,7 +129,9 @@ func (s *WindowsSandbox) PostStart(pid int, limits *policy.ExecutionLimits) erro
 
 	useLimits := limits
 	if useLimits == nil {
+		s.pendingMutex.RLock()
 		useLimits = s.pendingLimits
+		s.pendingMutex.RUnlock()
 	}
 	if useLimits == nil {
 		return fmt.Errorf("no limits available for Job Object assignment")
