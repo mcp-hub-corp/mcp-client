@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
@@ -72,11 +73,13 @@ func TestTokenStorage(t *testing.T) {
 	err := storage.Save("https://test.example.com", token)
 	require.NoError(t, err)
 
-	// Verify file has correct permissions
+	// Verify file has correct permissions (skip on Windows — NTFS uses ACLs, not mode bits)
 	authPath := filepath.Join(tmpDir, "auth.json")
 	fileInfo, err := os.Stat(authPath)
 	require.NoError(t, err)
-	assert.Equal(t, os.FileMode(0o600), fileInfo.Mode()&os.FileMode(0o777))
+	if runtime.GOOS != "windows" {
+		assert.Equal(t, os.FileMode(0o600), fileInfo.Mode()&os.FileMode(0o777))
+	}
 
 	// Load token
 	loadedToken, err := storage.Load()
@@ -124,8 +127,11 @@ func TestTokenStoragePermissions(t *testing.T) {
 	require.NoError(t, err)
 
 	// Verify permissions are 0600 (read-write for owner only)
-	perms := fileInfo.Mode().Perm()
-	assert.Equal(t, os.FileMode(0o600), perms, fmt.Sprintf("expected 0600, got %o", perms))
+	// Skip on Windows — NTFS uses ACLs, not mode bits
+	if runtime.GOOS != "windows" {
+		perms := fileInfo.Mode().Perm()
+		assert.Equal(t, os.FileMode(0o600), perms, fmt.Sprintf("expected 0600, got %o", perms))
+	}
 }
 
 // TestTokenStorageLoadNonExistent tests loading from non-existent file

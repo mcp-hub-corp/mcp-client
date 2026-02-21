@@ -2,6 +2,7 @@ package config
 
 import (
 	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -30,7 +31,7 @@ func TestLoadConfig_Defaults(t *testing.T) {
 	require.NotNil(t, cfg)
 
 	assert.Equal(t, "https://registry.mcp-hub.info", cfg.RegistryURL)
-	assert.Contains(t, cfg.CacheDir, ".mcp/cache")
+	assert.Contains(t, cfg.CacheDir, filepath.FromSlash(".mcp/cache"))
 	assert.Equal(t, 5*time.Minute, cfg.Timeout)
 	assert.Equal(t, 1000, cfg.MaxCPU)
 	assert.Equal(t, "512M", cfg.MaxMemory)
@@ -38,7 +39,7 @@ func TestLoadConfig_Defaults(t *testing.T) {
 	assert.Equal(t, 1024, cfg.MaxFDs)
 	assert.Equal(t, "info", cfg.LogLevel)
 	assert.True(t, cfg.AuditEnabled)
-	assert.Contains(t, cfg.AuditLogFile, ".mcp/audit.log")
+	assert.Contains(t, cfg.AuditLogFile, filepath.FromSlash(".mcp/audit.log"))
 }
 
 func TestLoadConfig_EnvVarOverride(t *testing.T) {
@@ -67,7 +68,7 @@ func TestExpandPath(t *testing.T) {
 		{
 			name:     "expand tilde",
 			input:    "~/.mcp/config",
-			contains: ".mcp/config",
+			contains: filepath.FromSlash(".mcp/config"),
 		},
 		{
 			name:     "absolute path unchanged",

@@ -262,6 +262,11 @@ func TestSelectEntrypoint_FoundForCurrentOS(t *testing.T) {
 				Arch:    "arm64",
 				Command: "./bin/darwin-arm",
 			},
+			{
+				OS:      "windows",
+				Arch:    "amd64",
+				Command: "./bin/windows.exe",
+			},
 		},
 	}
 
@@ -269,7 +274,7 @@ func TestSelectEntrypoint_FoundForCurrentOS(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotNil(t, ep)
 	// The result depends on runtime environment, so just check it's one of them
-	assert.Contains(t, []string{"linux", "darwin"}, ep.OS)
+	assert.Contains(t, []string{"linux", "darwin", "windows"}, ep.OS)
 	assert.Contains(t, []string{"amd64", "arm64"}, ep.Arch)
 }
 
@@ -277,9 +282,9 @@ func TestSelectEntrypoint_NotFound(t *testing.T) {
 	m := &Manifest{
 		Entrypoints: []Entrypoint{
 			{
-				OS:      "windows",
+				OS:      "freebsd",
 				Arch:    "amd64",
-				Command: "./bin/windows",
+				Command: "./bin/freebsd",
 			},
 		},
 	}

@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
@@ -39,10 +40,12 @@ func TestTokenStorageSave(t *testing.T) {
 	tokenPath := filepath.Join(cacheDir, "auth.json")
 	assert.FileExists(t, tokenPath)
 
-	// Verify file permissions
+	// Verify file permissions (skip on Windows — NTFS uses ACLs, not mode bits)
 	info, err := os.Stat(tokenPath)
 	require.NoError(t, err)
-	assert.Equal(t, os.FileMode(0o600), info.Mode())
+	if runtime.GOOS != "windows" {
+		assert.Equal(t, os.FileMode(0o600), info.Mode())
+	}
 }
 
 func TestTokenStorageLoad(t *testing.T) {
@@ -98,7 +101,7 @@ func TestTokenIsExpired_Past(t *testing.T) {
 func TestTokenIsExpired_Now(t *testing.T) {
 	token := &Token{
 		AccessToken: "test",
-		ExpiresAt:   time.Now(),
+		ExpiresAt:   time.Now().Add(-time.Second),
 	}
 
 	assert.True(t, token.IsExpired())

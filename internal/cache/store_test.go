@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sync"
 	"testing"
 	"time"
@@ -62,10 +63,12 @@ func TestPutManifest_Success(t *testing.T) {
 	manifestPath := filepath.Join(tempDir, "manifests", testDigest1Safe)
 	assert.FileExists(t, manifestPath)
 
-	// Verify permissions
+	// Verify permissions (skip on Windows — NTFS uses ACLs, not mode bits)
 	info, err := os.Stat(manifestPath)
 	require.NoError(t, err)
-	assert.Equal(t, os.FileMode(0o600), info.Mode())
+	if runtime.GOOS != "windows" {
+		assert.Equal(t, os.FileMode(0o600), info.Mode())
+	}
 }
 
 func TestGetManifest_Success(t *testing.T) {
@@ -108,10 +111,12 @@ func TestPutBundle_Success(t *testing.T) {
 	bundlePath := filepath.Join(tempDir, "bundles", testDigest2Safe)
 	assert.FileExists(t, bundlePath)
 
-	// Verify permissions
+	// Verify permissions (skip on Windows — NTFS uses ACLs, not mode bits)
 	info, err := os.Stat(bundlePath)
 	require.NoError(t, err)
-	assert.Equal(t, os.FileMode(0o600), info.Mode())
+	if runtime.GOOS != "windows" {
+		assert.Equal(t, os.FileMode(0o600), info.Mode())
+	}
 }
 
 func TestGetBundle_Success(t *testing.T) {

@@ -5,6 +5,8 @@ package sandbox
 import (
 	"context"
 	"os/exec"
+	"runtime"
+	"strings"
 	"testing"
 	"time"
 
@@ -12,6 +14,17 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// startOrSkipWin starts the command and skips the test if Windows restricted
+// tokens block process creation (common in GitHub Actions runners).
+func startOrSkipWin(t *testing.T, cmd *exec.Cmd) {
+	t.Helper()
+	err := cmd.Start()
+	if err != nil && runtime.GOOS == "windows" && strings.Contains(err.Error(), "Access is denied") {
+		t.Skipf("restricted token blocks process creation in this environment: %v", err)
+	}
+	require.NoError(t, err)
+}
 
 func TestWindowsSandbox_JobObjectAssigned(t *testing.T) {
 	if testing.Short() {
@@ -33,8 +46,7 @@ func TestWindowsSandbox_JobObjectAssigned(t *testing.T) {
 	err := sb.Apply(cmd, limits, nil)
 	require.NoError(t, err)
 
-	err = cmd.Start()
-	require.NoError(t, err)
+	startOrSkipWin(t, cmd)
 	defer func() {
 		_ = cmd.Process.Kill()
 		_ = cmd.Wait()
@@ -74,10 +86,7 @@ func TestWindowsSandbox_MemoryLimitEnforced(t *testing.T) {
 	err := sb.Apply(cmd, limits, nil)
 	require.NoError(t, err)
 
-	err = cmd.Start()
-	if err != nil {
-		t.Skipf("failed to start process: %v", err)
-	}
+	startOrSkipWin(t, cmd)
 
 	pid := cmd.Process.Pid
 	_ = sb.PostStart(pid, limits)
@@ -113,10 +122,7 @@ func TestWindowsSandbox_ProcessLimitEnforced(t *testing.T) {
 	err := sb.Apply(cmd, limits, nil)
 	require.NoError(t, err)
 
-	err = cmd.Start()
-	if err != nil {
-		t.Skipf("failed to start process: %v", err)
-	}
+	startOrSkipWin(t, cmd)
 
 	pid := cmd.Process.Pid
 	_ = sb.PostStart(pid, limits)
@@ -148,8 +154,7 @@ func TestWindowsSandbox_KillOnJobClose(t *testing.T) {
 	err := sb.Apply(cmd, limits, nil)
 	require.NoError(t, err)
 
-	err = cmd.Start()
-	require.NoError(t, err)
+	startOrSkipWin(t, cmd)
 
 	pid := cmd.Process.Pid
 	err = sb.PostStart(pid, limits)
@@ -190,8 +195,7 @@ func TestWindowsSandbox_TimeoutEnforced(t *testing.T) {
 	require.NoError(t, err)
 
 	start := time.Now()
-	err = cmd.Start()
-	require.NoError(t, err)
+	startOrSkipWin(t, cmd)
 
 	pid := cmd.Process.Pid
 	_ = sb.PostStart(pid, limits)

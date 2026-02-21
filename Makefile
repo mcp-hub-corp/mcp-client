@@ -52,6 +52,7 @@ clean: ## Clean build artifacts
 	@echo "Cleaning..."
 	rm -f $(BINARY)
 	rm -f coverage.out coverage.html
+	rm -rf .out/
 	go clean
 
 install: build ## Install the binary to $GOPATH/bin

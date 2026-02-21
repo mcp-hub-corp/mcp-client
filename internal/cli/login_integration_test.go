@@ -3,6 +3,7 @@ package cli
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
@@ -41,11 +42,13 @@ func TestLoginIntegrationTokenStorage(t *testing.T) {
 	err = storage.Save("https://test.registry.com", testToken)
 	require.NoError(t, err)
 
-	// Test 3: Verify file permissions
+	// Test 3: Verify file permissions (skip on Windows — NTFS uses ACLs)
 	authPath := filepath.Join(tmpDir, "auth.json")
 	fileInfo, err := os.Stat(authPath)
 	require.NoError(t, err)
-	assert.Equal(t, os.FileMode(0o600), fileInfo.Mode()&os.FileMode(0o777))
+	if runtime.GOOS != "windows" {
+		assert.Equal(t, os.FileMode(0o600), fileInfo.Mode()&os.FileMode(0o777))
+	}
 
 	// Test 4: Load stored token
 	loadedToken, err := storage.Load()

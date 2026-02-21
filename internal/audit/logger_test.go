@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
@@ -207,9 +208,11 @@ func TestLog_FilePermissions(t *testing.T) {
 	// Check file permissions (should be 0o600)
 	info, err := os.Stat(logFile)
 	require.NoError(t, err)
-	// Check that only owner can read/write
-	mode := info.Mode()
-	assert.Equal(t, os.FileMode(0o600), mode&os.FileMode(0o777))
+	// Check that only owner can read/write (skip on Windows — NTFS uses ACLs, not mode bits)
+	if runtime.GOOS != "windows" {
+		mode := info.Mode()
+		assert.Equal(t, os.FileMode(0o600), mode&os.FileMode(0o777))
+	}
 }
 
 func TestLog_Timestamp(t *testing.T) {

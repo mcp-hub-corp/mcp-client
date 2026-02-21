@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 
@@ -13,6 +14,17 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// startOrSkip starts the command and skips the test if Windows restricted
+// tokens block process creation (common in GitHub Actions runners).
+func startOrSkip(t *testing.T, cmd *exec.Cmd) {
+	t.Helper()
+	err := cmd.Start()
+	if err != nil && runtime.GOOS == "windows" && strings.Contains(err.Error(), "Access is denied") {
+		t.Skipf("restricted token blocks process creation in this environment: %v", err)
+	}
+	require.NoError(t, err)
+}
 
 // buildTestProgram compiles a test helper from testdata/ into a temp directory.
 // Returns the path to the compiled binary.
@@ -70,8 +82,7 @@ func TestSandboxIntegration_TimeoutKillsProcess(t *testing.T) {
 	require.NoError(t, err)
 
 	start := time.Now()
-	err = cmd.Start()
-	require.NoError(t, err)
+	startOrSkip(t, cmd)
 
 	if cmd.Process != nil {
 		_ = sb.PostStart(cmd.Process.Pid, limits)
@@ -134,8 +145,7 @@ func TestSandboxIntegration_ProcessCompletesNormally(t *testing.T) {
 	err := sb.Apply(cmd, limits, nil)
 	require.NoError(t, err)
 
-	err = cmd.Start()
-	require.NoError(t, err)
+	startOrSkip(t, cmd)
 
 	if cmd.Process != nil {
 		_ = sb.PostStart(cmd.Process.Pid, limits)
@@ -214,8 +224,7 @@ func TestSandboxIntegration_NonZeroExitCode(t *testing.T) {
 	err := sb.Apply(cmd, limits, nil)
 	require.NoError(t, err)
 
-	err = cmd.Start()
-	require.NoError(t, err)
+	startOrSkip(t, cmd)
 
 	if cmd.Process != nil {
 		_ = sb.PostStart(cmd.Process.Pid, limits)

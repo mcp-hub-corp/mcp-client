@@ -3,6 +3,7 @@ package cli
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
@@ -41,12 +42,14 @@ func TestLoginLogoutFlow(t *testing.T) {
 	err = storage.Save(cfg.RegistryURL, testToken)
 	require.NoError(t, err, "should save token")
 
-	// Step 3: Verify token file has correct permissions
+	// Step 3: Verify token file has correct permissions (skip on Windows — NTFS uses ACLs)
 	authPath := filepath.Join(tmpDir, "auth.json")
 	fileInfo, err := os.Stat(authPath)
 	require.NoError(t, err, "token file should exist")
-	perms := fileInfo.Mode().Perm()
-	assert.Equal(t, os.FileMode(0o600), perms, "token file should have 0600 permissions")
+	if runtime.GOOS != "windows" {
+		perms := fileInfo.Mode().Perm()
+		assert.Equal(t, os.FileMode(0o600), perms, "token file should have 0600 permissions")
+	}
 
 	// Step 4: Load token and verify
 	loadedToken, err := storage.Load()
@@ -91,14 +94,17 @@ func TestTokenSecureStorage(t *testing.T) {
 	fileInfo, err := os.Stat(authPath)
 	require.NoError(t, err)
 
-	perms := fileInfo.Mode().Perm()
-	// Ensure only owner can read/write (0600)
-	assert.Equal(t, os.FileMode(0o600), perms, "token must be 0600 (read-write owner only)")
+	// Verify permissions (skip on Windows — NTFS uses ACLs, not mode bits)
+	if runtime.GOOS != "windows" {
+		perms := fileInfo.Mode().Perm()
+		// Ensure only owner can read/write (0600)
+		assert.Equal(t, os.FileMode(0o600), perms, "token must be 0600 (read-write owner only)")
 
-	// Verify others cannot read
-	if os.Getuid() != 0 { // Skip if running as root
-		otherCanRead := (perms & 0o044) != 0
-		assert.False(t, otherCanRead, "others should not be able to read token file")
+		// Verify others cannot read
+		if os.Getuid() != 0 { // Skip if running as root
+			otherCanRead := (perms & 0o044) != 0
+			assert.False(t, otherCanRead, "others should not be able to read token file")
+		}
 	}
 }
 
@@ -120,12 +126,12 @@ func TestTokenExpirationCalculation(t *testing.T) {
 	}
 	assert.True(t, expiredToken.IsExpired(), "past token should be expired")
 
-	// Test 3: Just now (edge case)
+	// Test 3: Just now (edge case — use slight past to avoid nanosecond race)
 	nowToken := &registry.Token{
 		AccessToken: "now-token",
-		ExpiresAt:   now,
+		ExpiresAt:   now.Add(-time.Second),
 	}
-	assert.True(t, nowToken.IsExpired(), "token expiring now should be expired")
+	assert.True(t, nowToken.IsExpired(), "token expiring in the past should be expired")
 
 	// Test 4: Far future
 	farFutureToken := &registry.Token{
